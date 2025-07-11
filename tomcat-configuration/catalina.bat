@@ -224,13 +224,12 @@ shift
 :noJpda
 
 rem ========================================================================
-rem INTELLIJ SMART TOMCAT FIX - Clear debug variables to prevent conflicts
-rem Added to resolve "Cannot load JVM TI agent twice" error
+rem INTELLIJ SMART TOMCAT FIX - (REMOVIDO PARA PERMITIR DEBUG REMOTO)
 rem ========================================================================
-set JPDA_OPTS=
-set JPDA=
-set DEBUG_OPTS=
-echo Smart Tomcat Debug Fix: Debug variables cleared
+rem set JPDA_OPTS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005
+rem set JPDA=
+rem set DEBUG_OPTS=
+rem echo Smart Tomcat Debug Fix: Debug variables cleared
 
 if ""%1"" == ""debug"" goto doDebug
 if ""%1"" == ""run"" goto doRun
@@ -305,52 +304,48 @@ goto end
 
 :execCmd
 rem ========================================================================
-rem INTELLIJ SMART TOMCAT FINAL PROTECTION - Force clear debug vars again
+rem INTELLIJ SMART TOMCAT FINAL PROTECTION - (REMOVIDO PARA PERMITIR DEBUG REMOTO)
 rem ========================================================================
-set JPDA_OPTS=
-set JPDA=
-set DEBUG_OPTS=
+rem set JPDA_OPTS=
+rem set JPDA=
+rem set DEBUG_OPTS=
 
-rem SMART TOMCAT AGGRESSIVE FIX - Clear JAVA_OPTS if it contains debug options
-if defined JAVA_OPTS (
-    echo Original JAVA_OPTS: %JAVA_OPTS%
+rem SMART TOMCAT AGGRESSIVE FIX - (REMOVIDO PARA PERMITIR DEBUG REMOTO)
+rem if defined JAVA_OPTS (
+rem     echo Original JAVA_OPTS: %JAVA_OPTS%
+rem     echo %JAVA_OPTS% | findstr /i /c:"jdwp" /c:"agentlib" /c:"Xdebug" /c:"Xrunjdwp" >nul
+rem     if not errorlevel 1 (
+rem         echo WARNING: Debug options detected in JAVA_OPTS - clearing completely for Smart Tomcat compatibility
+rem         set "JAVA_OPTS=-Dfile.encoding=UTF-8"
+rem         echo New JAVA_OPTS: %JAVA_OPTS%
+rem     ) else (
+rem         echo JAVA_OPTS is clean: %JAVA_OPTS%
+rem     )
+rem )
 
-    rem Check if JAVA_OPTS contains any debug options
-    echo %JAVA_OPTS% | findstr /i /c:"jdwp" /c:"agentlib" /c:"Xdebug" /c:"Xrunjdwp" >nul
-    if not errorlevel 1 (
-        echo WARNING: Debug options detected in JAVA_OPTS - clearing completely for Smart Tomcat compatibility
-        set "JAVA_OPTS=-Dfile.encoding=UTF-8"
-        echo New JAVA_OPTS: %JAVA_OPTS%
-    ) else (
-        echo JAVA_OPTS is clean: %JAVA_OPTS%
-    )
-)
-
-rem Also check CATALINA_OPTS for debug options
-if defined CATALINA_OPTS (
-    echo Original CATALINA_OPTS: %CATALINA_OPTS%
-
-    echo %CATALINA_OPTS% | findstr /i /c:"jdwp" /c:"agentlib" /c:"Xdebug" /c:"Xrunjdwp" >nul
-    if not errorlevel 1 (
-        echo WARNING: Debug options detected in CATALINA_OPTS - clearing for Smart Tomcat compatibility
-        set "CATALINA_OPTS="
-        echo New CATALINA_OPTS: %CATALINA_OPTS%
-    ) else (
-        echo CATALINA_OPTS is clean: %CATALINA_OPTS%
-    )
-)
+rem if defined CATALINA_OPTS (
+rem     echo Original CATALINA_OPTS: %CATALINA_OPTS%
+rem     echo %CATALINA_OPTS% | findstr /i /c:"jdwp" /c:"agentlib" /c:"Xdebug" /c:"Xrunjdwp" >nul
+rem     if not errorlevel 1 (
+rem         echo WARNING: Debug options detected in CATALINA_OPTS - clearing for Smart Tomcat compatibility
+rem         set "CATALINA_OPTS="
+rem         echo New CATALINA_OPTS: %CATALINA_OPTS%
+rem     ) else (
+rem         echo CATALINA_OPTS is clean: %CATALINA_OPTS%
+rem     )
+rem )
 
 rem Get remaining unshifted command line arguments and save them in the
 set CMD_LINE_ARGS=
 :setArgs
 if ""%1""=="""" goto doneSetArgs
 rem Skip any debug-related arguments
-echo %1 | findstr /i /c:"jdwp" /c:"agentlib" /c:"Xdebug" /c:"Xrunjdwp" >nul
-if not errorlevel 1 (
-    echo Skipping debug argument: %1
-) else (
+rem echo %1 | findstr /i /c:"jdwp" /c:"agentlib" /c:"Xdebug" /c:"Xrunjdwp" >nul
+rem if not errorlevel 1 (
+rem     echo Skipping debug argument: %1
+rem ) else (
     set CMD_LINE_ARGS=%CMD_LINE_ARGS% %1
-)
+rem )
 shift
 goto setArgs
 :doneSetArgs
