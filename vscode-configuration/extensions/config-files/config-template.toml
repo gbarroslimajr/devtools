@@ -1,0 +1,42 @@
+# Template Codex config.toml for GitHub
+model = "your-model"
+model_provider = "local"
+
+[model_providers.local]
+name = "Local Provider"
+base_url = "http://localhost:11434/v1"
+wire_api = "chat"
+
+http_headers = { Authorization = "Bearer your-token" }
+query_params = { model = "your-model" }
+
+[model_providers.local.request_options]
+timeout = 20000
+verify_ssl = false
+
+# ca_bundle_path = [
+#   "C:\\path\\to\\cert1.cer",
+#   "C:\\path\\to\\cert2.cer",
+# ]
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+writable_roots = ["C:\\your\\project"]
+network_access = true
+
+[shell_environment_policy]
+inherit = "core"
+include_only = ["PATH", "HOME"]
+exclude = ["AWS_*", "AZURE_*"]
+
+[features]
+web_search_request = false
+view_image_tool = true
+
+profile = "default"
+
+[profiles.default]
+model_reasoning_effort = "medium"
+model_max_output_tokens = 4096
