@@ -13,7 +13,51 @@ try:
 except ImportError:
     DOTENV_AVAILABLE = False
 
-from app.core.models import DatabaseType
+from app.core.models import DatabaseType, LLMProvider
+
+
+class DefaultConfig:
+    """Valores padrão das configurações"""
+    # LLM Local
+    MODEL_NAME = 'gpt-oss-120b'
+    DEVICE = 'cuda'
+    LLM_MAX_NEW_TOKENS = 1024
+    LLM_TEMPERATURE = 0.3
+    LLM_TOP_P = 0.95
+    LLM_REPETITION_PENALTY = 1.15
+
+    # LLM API
+    LLM_MODE = 'local'
+    LLM_PROVIDER = 'genfactory_llama70b'
+    LLM_API_MAX_OUTPUT_TOKENS = 4000
+    LLM_REASONING_EFFORT = 'high'
+
+    # OpenAI
+    OPENAI_MODEL = 'gpt-5.1'
+    OPENAI_TIMEOUT = 60
+    OPENAI_TEMPERATURE = 0.3
+    OPENAI_MAX_TOKENS = 4000
+
+    # Anthropic
+    ANTHROPIC_MODEL = 'claude-sonnet-4-5-20250929'
+    ANTHROPIC_TIMEOUT = 60
+    ANTHROPIC_TEMPERATURE = 0.3
+    ANTHROPIC_MAX_TOKENS = 4000
+
+    # GenFactory
+    GENFACTORY_TIMEOUT = 20000
+    GENFACTORY_VERIFY_SSL = 'true'
+    GENFACTORY_WIRE_API = 'chat'
+
+    # Database
+    DB_TYPE = 'oracle'
+
+    # Paths
+    OUTPUT_DIR = './output'
+    PROCEDURES_DIR = './procedures'
+
+    # Logging
+    LOG_LEVEL = 'INFO'
 
 
 class Config:
@@ -38,93 +82,71 @@ class Config:
             self._env_loaded = False
 
         # Modelo LLM
-        self.model_name = os.getenv('CODEGRAPHAI_MODEL_NAME', 'gpt-oss-120b')
-        self.device = os.getenv('CODEGRAPHAI_DEVICE', 'cuda')
+        self.model_name = os.getenv('CODEGRAPHAI_MODEL_NAME', DefaultConfig.MODEL_NAME)
+        self.device = os.getenv('CODEGRAPHAI_DEVICE', DefaultConfig.DEVICE)
 
         # Parâmetros LLM
-        self.llm_max_new_tokens = int(os.getenv('CODEGRAPHAI_LLM_MAX_NEW_TOKENS', '1024'))
-        self.llm_temperature = float(os.getenv('CODEGRAPHAI_LLM_TEMPERATURE', '0.3'))
-        self.llm_top_p = float(os.getenv('CODEGRAPHAI_LLM_TOP_P', '0.95'))
-        self.llm_repetition_penalty = float(os.getenv('CODEGRAPHAI_LLM_REPETITION_PENALTY', '1.15'))
+        self.llm_max_new_tokens = self._getenv_int('CODEGRAPHAI_LLM_MAX_NEW_TOKENS', DefaultConfig.LLM_MAX_NEW_TOKENS)
+        self.llm_temperature = self._getenv_float('CODEGRAPHAI_LLM_TEMPERATURE', DefaultConfig.LLM_TEMPERATURE)
+        self.llm_top_p = self._getenv_float('CODEGRAPHAI_LLM_TOP_P', DefaultConfig.LLM_TOP_P)
+        self.llm_repetition_penalty = self._getenv_float('CODEGRAPHAI_LLM_REPETITION_PENALTY', DefaultConfig.LLM_REPETITION_PENALTY)
 
         # Modo LLM (local ou api)
-        self.llm_mode = os.getenv('CODEGRAPHAI_LLM_MODE', 'local').lower()
+        self.llm_mode = os.getenv('CODEGRAPHAI_LLM_MODE', DefaultConfig.LLM_MODE).lower()
 
         # Provider API (se modo api)
-        self.llm_provider = os.getenv('CODEGRAPHAI_LLM_PROVIDER', 'genfactory_llama70b')
+        self.llm_provider = os.getenv('CODEGRAPHAI_LLM_PROVIDER', DefaultConfig.LLM_PROVIDER)
 
         # Configurações GenFactory (apenas se modo api)
         if self.llm_mode == 'api':
-            # Helper para processar CA bundle path
-            def _parse_ca_bundle_path(env_var: str) -> list:
-                """Processa CA bundle path, suportando ; e , como separadores"""
-                path_str = os.getenv(env_var, '')
-                if not path_str:
-                    return []
-                # Tenta primeiro com ; (Windows), depois com , (Linux/Mac)
-                if ';' in path_str:
-                    return [p.strip() for p in path_str.split(';') if p.strip()]
-                else:
-                    return [p.strip() for p in path_str.split(',') if p.strip()]
-
             # GenFactory Llama 70B
-            self.genfactory_llama70b = {
-                'name': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_NAME', 'BNP GenFactory Llama 70B'),
-                'base_url': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_BASE_URL', ''),
-                'wire_api': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_WIRE_API', 'chat'),
-                'model': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_MODEL', 'meta-llama-3.3-70b-instruct'),
-                'authorization_token': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_AUTHORIZATION_TOKEN', ''),
-                'timeout': int(os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_TIMEOUT', '20000')),
-                'verify_ssl': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_VERIFY_SSL', 'true').lower() == 'true',
-                'ca_bundle_path': _parse_ca_bundle_path('CODEGRAPHAI_GENFACTORY_LLAMA70B_CA_BUNDLE_PATH')
-            }
+            self.genfactory_llama70b = self._load_genfactory_config(
+                'LLAMA70B',
+                'BNP GenFactory Llama 70B',
+                'meta-llama-3.3-70b-instruct'
+            )
 
             # GenFactory Codestral
-            self.genfactory_codestral = {
-                'name': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_NAME', 'BNP GenFactory Codestral Latest'),
-                'base_url': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_BASE_URL', ''),
-                'wire_api': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_WIRE_API', 'chat'),
-                'model': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_MODEL', 'codestral-latest'),
-                'authorization_token': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_AUTHORIZATION_TOKEN', ''),
-                'timeout': int(os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_TIMEOUT', '20000')),
-                'verify_ssl': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_VERIFY_SSL', 'true').lower() == 'true',
-                'ca_bundle_path': _parse_ca_bundle_path('CODEGRAPHAI_GENFACTORY_CODESTRAL_CA_BUNDLE_PATH')
-            }
+            self.genfactory_codestral = self._load_genfactory_config(
+                'CODESTRAL',
+                'BNP GenFactory Codestral Latest',
+                'codestral-latest'
+            )
 
             # GenFactory GPT-OSS-120B
-            self.genfactory_gptoss120b = {
-                'name': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_NAME', 'BNP GenFactory GPT-OSS-120B'),
-                'base_url': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_BASE_URL', ''),
-                'wire_api': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_WIRE_API', 'chat'),
-                'model': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_MODEL', 'gpt-oss-120b'),
-                'authorization_token': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_AUTHORIZATION_TOKEN', ''),
-                'timeout': int(os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_TIMEOUT', '20000')),
-                'verify_ssl': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_VERIFY_SSL', 'true').lower() == 'true',
-                'ca_bundle_path': _parse_ca_bundle_path('CODEGRAPHAI_GENFACTORY_GPTOSS120B_CA_BUNDLE_PATH')
-            }
+            self.genfactory_gptoss120b = self._load_genfactory_config(
+                'GPTOSS120B',
+                'BNP GenFactory GPT-OSS-120B',
+                'gpt-oss-120b'
+            )
 
             # OpenAI
-            self.openai = {
-                'api_key': os.getenv('CODEGRAPHAI_OPENAI_API_KEY', ''),
-                'model': os.getenv('CODEGRAPHAI_OPENAI_MODEL', 'gpt-5.1'),
-                'base_url': os.getenv('CODEGRAPHAI_OPENAI_BASE_URL'),  # Opcional para Azure OpenAI
-                'timeout': int(os.getenv('CODEGRAPHAI_OPENAI_TIMEOUT', '60')),
-                'temperature': float(os.getenv('CODEGRAPHAI_OPENAI_TEMPERATURE', '0.3')),
-                'max_tokens': int(os.getenv('CODEGRAPHAI_OPENAI_MAX_TOKENS', '4000'))
-            }
+            self.openai = self._load_simple_api_config(
+                'OPENAI',
+                'CODEGRAPHAI_OPENAI_API_KEY',
+                'CODEGRAPHAI_OPENAI_MODEL',
+                DefaultConfig.OPENAI_MODEL,
+                DefaultConfig.OPENAI_TIMEOUT,
+                DefaultConfig.OPENAI_TEMPERATURE,
+                DefaultConfig.OPENAI_MAX_TOKENS
+            )
+            # Base URL é específico do OpenAI (para Azure)
+            self.openai['base_url'] = os.getenv('CODEGRAPHAI_OPENAI_BASE_URL')
 
             # Anthropic Claude
-            self.anthropic = {
-                'api_key': os.getenv('CODEGRAPHAI_ANTHROPIC_API_KEY', ''),
-                'model': os.getenv('CODEGRAPHAI_ANTHROPIC_MODEL', 'claude-sonnet-4-5-20250929'),
-                'timeout': int(os.getenv('CODEGRAPHAI_ANTHROPIC_TIMEOUT', '60')),
-                'temperature': float(os.getenv('CODEGRAPHAI_ANTHROPIC_TEMPERATURE', '0.3')),
-                'max_tokens': int(os.getenv('CODEGRAPHAI_ANTHROPIC_MAX_TOKENS', '4000'))
-            }
+            self.anthropic = self._load_simple_api_config(
+                'ANTHROPIC',
+                'CODEGRAPHAI_ANTHROPIC_API_KEY',
+                'CODEGRAPHAI_ANTHROPIC_MODEL',
+                DefaultConfig.ANTHROPIC_MODEL,
+                DefaultConfig.ANTHROPIC_TIMEOUT,
+                DefaultConfig.ANTHROPIC_TEMPERATURE,
+                DefaultConfig.ANTHROPIC_MAX_TOKENS
+            )
 
             # Configurações globais API
-            self.llm_api_max_output_tokens = int(os.getenv('CODEGRAPHAI_LLM_API_MAX_OUTPUT_TOKENS', '4000'))
-            self.llm_reasoning_effort = os.getenv('CODEGRAPHAI_LLM_REASONING_EFFORT', 'high')
+            self.llm_api_max_output_tokens = self._getenv_int('CODEGRAPHAI_LLM_API_MAX_OUTPUT_TOKENS', DefaultConfig.LLM_API_MAX_OUTPUT_TOKENS)
+            self.llm_reasoning_effort = os.getenv('CODEGRAPHAI_LLM_REASONING_EFFORT', DefaultConfig.LLM_REASONING_EFFORT)
         else:
             # Inicializar como None se modo local
             self.genfactory_llama70b = None
@@ -136,7 +158,7 @@ class Config:
             self.llm_reasoning_effort = None
 
         # Configuração de banco de dados (genérica)
-        db_type_str = os.getenv('CODEGRAPHAI_DB_TYPE', 'oracle').lower()
+        db_type_str = os.getenv('CODEGRAPHAI_DB_TYPE', DefaultConfig.DB_TYPE).lower()
         try:
             self.db_type = DatabaseType(db_type_str)
         except ValueError:
@@ -148,28 +170,141 @@ class Config:
         self.db_schema = os.getenv('CODEGRAPHAI_DB_SCHEMA')
 
         # Oracle Database (mantido para backward compatibility)
-        self.oracle_user = os.getenv('CODEGRAPHAI_ORACLE_USER') or os.getenv('CODEGRAPHAI_DB_USER')
-        self.oracle_password = os.getenv('CODEGRAPHAI_ORACLE_PASSWORD') or os.getenv('CODEGRAPHAI_DB_PASSWORD')
+        self.oracle_user = self._get_db_value('CODEGRAPHAI_ORACLE_USER', 'CODEGRAPHAI_DB_USER')
+        self.oracle_password = self._get_db_value('CODEGRAPHAI_ORACLE_PASSWORD', 'CODEGRAPHAI_DB_PASSWORD')
         self.oracle_dsn = os.getenv('CODEGRAPHAI_ORACLE_DSN') or self.db_host
         self.oracle_schema = os.getenv('CODEGRAPHAI_ORACLE_SCHEMA') or self.db_schema
 
         # Caminhos padrão
-        self.output_dir = os.getenv('CODEGRAPHAI_OUTPUT_DIR', './output')
-        self.procedures_dir = os.getenv('CODEGRAPHAI_PROCEDURES_DIR', './procedures')
+        self.output_dir = os.getenv('CODEGRAPHAI_OUTPUT_DIR', DefaultConfig.OUTPUT_DIR)
+        self.procedures_dir = os.getenv('CODEGRAPHAI_PROCEDURES_DIR', DefaultConfig.PROCEDURES_DIR)
 
         # Logging
-        self.log_level = os.getenv('CODEGRAPHAI_LOG_LEVEL', 'INFO')
+        self.log_level = os.getenv('CODEGRAPHAI_LOG_LEVEL', DefaultConfig.LOG_LEVEL)
         self.log_file = os.getenv('CODEGRAPHAI_LOG_FILE')  # Opcional
+
+        # Criar mapeamento de providers para validação
+        if self.llm_mode == 'api':
+            self._provider_config_map = {
+                'genfactory_llama70b': self.genfactory_llama70b,
+                'genfactory_codestral': self.genfactory_codestral,
+                'genfactory_gptoss120b': self.genfactory_gptoss120b,
+                'openai': self.openai,
+                'anthropic': self.anthropic
+            }
+        else:
+            self._provider_config_map = {}
 
         # Validação
         self._validate()
 
+    @staticmethod
+    def _getenv_int(key: str, default: int) -> int:
+        """Obtém variável de ambiente como int"""
+        try:
+            return int(os.getenv(key, str(default)))
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _getenv_float(key: str, default: float) -> float:
+        """Obtém variável de ambiente como float"""
+        try:
+            return float(os.getenv(key, str(default)))
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _getenv_bool(key: str, default: bool = False) -> bool:
+        """Obtém variável de ambiente como bool"""
+        value = os.getenv(key, '').lower()
+        if not value:
+            return default
+        return value in ('true', '1', 'yes', 'on')
+
+    @staticmethod
+    def _parse_ca_bundle_path(env_var: str) -> list:
+        """Processa CA bundle path, suportando ; e , como separadores"""
+        path_str = os.getenv(env_var, '')
+        if not path_str:
+            return []
+        # Tenta primeiro com ; (Windows), depois com , (Linux/Mac)
+        if ';' in path_str:
+            return [p.strip() for p in path_str.split(';') if p.strip()]
+        else:
+            return [p.strip() for p in path_str.split(',') if p.strip()]
+
+    def _load_genfactory_config(self, provider_prefix: str, default_name: str, default_model: str) -> dict:
+        """
+        Carrega configuração GenFactory de forma genérica
+
+        Args:
+            provider_prefix: Prefixo do provider (ex: 'LLAMA70B')
+            default_name: Nome padrão do provider
+            default_model: Modelo padrão
+
+        Returns:
+            Dict com configuração do provider
+        """
+        return {
+            'name': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_NAME', default_name),
+            'base_url': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_BASE_URL', ''),
+            'wire_api': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_WIRE_API', DefaultConfig.GENFACTORY_WIRE_API),
+            'model': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_MODEL', default_model),
+            'authorization_token': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_AUTHORIZATION_TOKEN', ''),
+            'timeout': self._getenv_int(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_TIMEOUT', DefaultConfig.GENFACTORY_TIMEOUT),
+            'verify_ssl': self._getenv_bool(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_VERIFY_SSL', True),
+            'ca_bundle_path': self._parse_ca_bundle_path(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_CA_BUNDLE_PATH')
+        }
+
+    def _load_simple_api_config(self, provider: str, api_key_var: str, model_var: str,
+                                default_model: str, default_timeout: int = 60,
+                                default_temp: float = 0.3, default_max_tokens: int = 4000) -> dict:
+        """
+        Carrega configuração para providers simples (OpenAI, Anthropic)
+
+        Args:
+            provider: Nome do provider (OPENAI, ANTHROPIC)
+            api_key_var: Variável de ambiente para API key
+            model_var: Variável de ambiente para modelo
+            default_model: Modelo padrão
+            default_timeout: Timeout padrão
+            default_temp: Temperature padrão
+            default_max_tokens: Max tokens padrão
+
+        Returns:
+            Dict com configuração do provider
+        """
+        return {
+            'api_key': os.getenv(api_key_var, ''),
+            'model': os.getenv(model_var, default_model),
+            'timeout': self._getenv_int(f'CODEGRAPHAI_{provider}_TIMEOUT', default_timeout),
+            'temperature': self._getenv_float(f'CODEGRAPHAI_{provider}_TEMPERATURE', default_temp),
+            'max_tokens': self._getenv_int(f'CODEGRAPHAI_{provider}_MAX_TOKENS', default_max_tokens)
+        }
+
+    def _get_db_value(self, oracle_var: str, generic_var: str, fallback: Optional[str] = None) -> Optional[str]:
+        """
+        Obtém valor de banco com fallback Oracle -> genérico -> fallback
+
+        Args:
+            oracle_var: Variável Oracle específica
+            generic_var: Variável genérica
+            fallback: Valor de fallback opcional
+
+        Returns:
+            Valor encontrado ou None
+        """
+        return os.getenv(oracle_var) or os.getenv(generic_var) or fallback
+
     def _validate(self) -> None:
         """Valida configurações"""
+        # Validar device
         valid_devices = ['cuda', 'cpu']
         if self.device not in valid_devices:
             raise ValueError(f"Device deve ser um de: {valid_devices}")
 
+        # Validar parâmetros LLM
         if self.llm_temperature < 0 or self.llm_temperature > 2:
             raise ValueError("LLM temperature deve estar entre 0 e 2")
 
@@ -186,24 +321,14 @@ class Config:
 
         # Validar configuração API se modo api
         if self.llm_mode == 'api':
-            valid_providers = ['genfactory_llama70b', 'genfactory_codestral', 'genfactory_gptoss120b', 'openai', 'anthropic']
-            if self.llm_provider not in valid_providers:
-                raise ValueError(f"LLM provider deve ser um de: {valid_providers}")
+            # Validar provider usando Enum
+            try:
+                LLMProvider.from_string(self.llm_provider)
+            except ValueError as e:
+                raise ValueError(str(e))
 
-            # Validar provider selecionado
-            if self.llm_provider == 'genfactory_llama70b':
-                provider_config = self.genfactory_llama70b
-            elif self.llm_provider == 'genfactory_codestral':
-                provider_config = self.genfactory_codestral
-            elif self.llm_provider == 'genfactory_gptoss120b':
-                provider_config = self.genfactory_gptoss120b
-            elif self.llm_provider == 'openai':
-                provider_config = self.openai
-            elif self.llm_provider == 'anthropic':
-                provider_config = self.anthropic
-            else:
-                provider_config = None
-
+            # Obter configuração do provider
+            provider_config = self._provider_config_map.get(self.llm_provider)
             if not provider_config:
                 raise ValueError(f"Configuração do provider {self.llm_provider} não encontrada")
 
@@ -222,8 +347,8 @@ class Config:
 
     def has_database_config(self) -> bool:
         """Verifica se configuração de banco está completa"""
-        user = self.oracle_user or os.getenv('CODEGRAPHAI_DB_USER')
-        password = self.oracle_password or os.getenv('CODEGRAPHAI_DB_PASSWORD')
+        user = self._get_db_value('CODEGRAPHAI_ORACLE_USER', 'CODEGRAPHAI_DB_USER')
+        password = self._get_db_value('CODEGRAPHAI_ORACLE_PASSWORD', 'CODEGRAPHAI_DB_PASSWORD')
         host = self.db_host or self.oracle_dsn
 
         return all([user, password, host])
@@ -238,8 +363,8 @@ class Config:
         Raises:
             ValueError: Se configuração estiver incompleta
         """
-        user = self.oracle_user or os.getenv('CODEGRAPHAI_DB_USER')
-        password = self.oracle_password or os.getenv('CODEGRAPHAI_DB_PASSWORD')
+        user = self._get_db_value('CODEGRAPHAI_ORACLE_USER', 'CODEGRAPHAI_DB_USER')
+        password = self._get_db_value('CODEGRAPHAI_ORACLE_PASSWORD', 'CODEGRAPHAI_DB_PASSWORD')
         host = self.db_host or self.oracle_dsn
 
         if not all([user, password, host]):

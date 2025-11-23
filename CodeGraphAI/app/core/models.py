@@ -46,6 +46,24 @@ class DatabaseType(str, Enum):
     MYSQL = "mysql"
 
 
+class LLMProvider(str, Enum):
+    """Providers LLM disponíveis"""
+    GENFACTORY_LLAMA70B = "genfactory_llama70b"
+    GENFACTORY_CODESTRAL = "genfactory_codestral"
+    GENFACTORY_GPTOSS120B = "genfactory_gptoss120b"
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+
+    @classmethod
+    def from_string(cls, value: str) -> 'LLMProvider':
+        """Cria provider a partir de string com validação"""
+        try:
+            return cls(value)
+        except ValueError:
+            valid = [p.value for p in cls]
+            raise ValueError(f"Provider inválido: {value}. Válidos: {valid}")
+
+
 @dataclass
 class DatabaseConfig:
     """Configuração de conexão com banco de dados"""

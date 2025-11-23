@@ -305,6 +305,67 @@ analyzer.export_mermaid_diagram("diagram.md")
 
 ## Configuration
 
+### `DefaultConfig`
+
+**Localização:** `app/config/config.py`
+
+**Descrição:** Classe com valores padrão centralizados para todas as configurações.
+
+**Atributos Principais:**
+
+| Atributo | Tipo | Valor Padrão | Descrição |
+|----------|------|--------------|-----------|
+| `MODEL_NAME` | `str` | `'gpt-oss-120b'` | Nome do modelo LLM local |
+| `DEVICE` | `str` | `'cuda'` | Dispositivo padrão |
+| `LLM_MODE` | `str` | `'local'` | Modo LLM padrão |
+| `LLM_PROVIDER` | `str` | `'genfactory_llama70b'` | Provider padrão |
+| `OPENAI_MODEL` | `str` | `'gpt-5.1'` | Modelo OpenAI padrão |
+| `ANTHROPIC_MODEL` | `str` | `'claude-sonnet-4-5-20250929'` | Modelo Anthropic padrão |
+| `DB_TYPE` | `str` | `'oracle'` | Tipo de banco padrão |
+| `OUTPUT_DIR` | `str` | `'./output'` | Diretório de saída padrão |
+| `LOG_LEVEL` | `str` | `'INFO'` | Nível de log padrão |
+
+**Exemplo:**
+```python
+from app.config.config import DefaultConfig
+
+# Usar valores padrão
+model_name = DefaultConfig.MODEL_NAME
+openai_model = DefaultConfig.OPENAI_MODEL
+```
+
+### `LLMProvider`
+
+**Localização:** `app/core/models.py`
+
+**Descrição:** Enum com providers LLM disponíveis.
+
+**Valores:**
+- `GENFACTORY_LLAMA70B = "genfactory_llama70b"`
+- `GENFACTORY_CODESTRAL = "genfactory_codestral"`
+- `GENFACTORY_GPTOSS120B = "genfactory_gptoss120b"`
+- `OPENAI = "openai"`
+- `ANTHROPIC = "anthropic"`
+
+**Métodos:**
+
+- `from_string(value: str) -> LLMProvider`: Cria provider a partir de string com validação
+
+**Exemplo:**
+```python
+from app.core.models import LLMProvider
+
+# Usar Enum
+provider = LLMProvider.OPENAI
+assert provider.value == 'openai'
+
+# Validar string
+try:
+    provider = LLMProvider.from_string('openai')
+except ValueError as e:
+    print(f"Provider inválido: {e}")
+```
+
 ### `Config`
 
 **Localização:** `app/config/config.py`
@@ -326,6 +387,24 @@ Config()  # Carrega de .env / environment.env automaticamente
 | `db_host` | `Optional[str]` | Host do banco |
 | `db_port` | `Optional[int]` | Porta do banco |
 | `output_dir` | `str` | Diretório de saída |
+| `llm_mode` | `str` | Modo LLM ('local' ou 'api') |
+| `llm_provider` | `str` | Provider LLM selecionado |
+| `openai` | `Optional[dict]` | Configuração OpenAI (se modo api) |
+| `anthropic` | `Optional[dict]` | Configuração Anthropic (se modo api) |
+| `_provider_config_map` | `dict` | Mapeamento de providers para configurações |
+
+**Métodos Helper (estáticos):**
+
+- `_getenv_int(key: str, default: int) -> int`: Obtém variável de ambiente como int
+- `_getenv_float(key: str, default: float) -> float`: Obtém variável de ambiente como float
+- `_getenv_bool(key: str, default: bool) -> bool`: Obtém variável de ambiente como bool
+- `_parse_ca_bundle_path(env_var: str) -> list`: Processa CA bundle path
+
+**Métodos Helper (instância):**
+
+- `_load_genfactory_config(provider_prefix: str, default_name: str, default_model: str) -> dict`: Carrega configuração GenFactory
+- `_load_simple_api_config(provider: str, api_key_var: str, model_var: str, default_model: str, ...) -> dict`: Carrega configuração API simples
+- `_get_db_value(oracle_var: str, generic_var: str, fallback: Optional[str]) -> Optional[str]`: Obtém valor de banco com fallback
 
 **Função Helper:**
 
@@ -333,10 +412,11 @@ Config()  # Carrega de .env / environment.env automaticamente
 
 **Exemplo:**
 ```python
-from config import get_config
+from app.config.config import get_config
 
 config = get_config()
 print(config.model_name)
+print(config.openai['model'] if config.openai else 'N/A')
 ```
 
 ---
