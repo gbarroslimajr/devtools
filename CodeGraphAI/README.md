@@ -1,8 +1,8 @@
 # CodeGraphAI 🔍
 
-> Análise inteligente de procedures de banco de dados usando IA local
+> Análise inteligente de procedures e tabelas de banco de dados usando IA local
 
-CodeGraphAI é uma ferramenta Python que utiliza LLMs (Large Language Models) para analisar, mapear e visualizar dependências entre stored procedures de bancos de dados. Identifica relacionamentos, calcula complexidade e gera hierarquias de baixo até alto nível automaticamente.
+CodeGraphAI é uma ferramenta Python que utiliza LLMs (Large Language Models) para analisar, mapear e visualizar dependências entre stored procedures e tabelas de bancos de dados. Identifica relacionamentos, calcula complexidade e gera hierarquias de baixo até alto nível automaticamente. Permite escolher entre analisar apenas procedures, apenas tabelas ou ambos através da flag `--analysis-type`.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)
@@ -12,11 +12,13 @@ CodeGraphAI é uma ferramenta Python que utiliza LLMs (Large Language Models) pa
 
 - 🤖 **Análise com IA Local** - Usa modelos LLM (GPT-OSS-120B, Llama, etc.) para entender lógica de negócio
 - 📊 **Mapeamento de Dependências** - Identifica chamadas entre procedures e acessos a tabelas
-- 🎯 **Hierarquia Bottom-Up** - Organiza procedures do nível mais baixo (sem dependências) até alto nível
+- 🗄️ **Análise de Tabelas** - Analisa estrutura de tabelas (DDL, relacionamentos, índices, foreign keys)
+- 🎯 **Hierarquia Bottom-Up** - Organiza procedures e tabelas do nível mais baixo (sem dependências) até alto nível
 - 📈 **Cálculo de Complexidade** - Score de 1-10 baseado em estrutura e lógica do código
-- 🎨 **Visualizações Mermaid** - Gera diagramas interativos em markdown
+- 🎨 **Visualizações Mermaid** - Gera diagramas interativos em markdown (procedures e tabelas)
 - 💾 **Análise de Arquivos** - Trabalha com arquivos `.prc` locais (sem necessidade de conexão ao banco)
 - 🔄 **Agnóstico de Banco** - Suporta Oracle, PostgreSQL, SQL Server e MySQL através de adaptadores
+- 🎛️ **Análise Flexível** - Escolha entre analisar tabelas, procedures ou ambos com flag `--analysis-type`
 
 ## 🚀 Quick Start
 
@@ -113,19 +115,28 @@ python-dotenv>=1.0.0
 CodeGraphAI/
 ├── app/                    # Módulos principais
 │   ├── core/              # Modelos e exceções
-│   │   └── models.py
+│   │   └── models.py      # ProcedureInfo, TableInfo, etc.
 │   ├── io/                # Adaptadores de banco de dados
-│   │   ├── base.py        # Interface abstrata
-│   │   ├── factory.py     # Factory pattern
+│   │   ├── base.py        # Interface abstrata (procedures)
+│   │   ├── table_base.py  # Interface abstrata (tabelas)
+│   │   ├── factory.py     # Factory pattern (procedures)
+│   │   ├── table_factory.py # Factory pattern (tabelas)
 │   │   ├── oracle_loader.py
+│   │   ├── oracle_table_loader.py
 │   │   ├── postgres_loader.py
+│   │   ├── postgres_table_loader.py
 │   │   ├── mssql_loader.py
+│   │   ├── mssql_table_loader.py
 │   │   ├── mysql_loader.py
+│   │   ├── mysql_table_loader.py
 │   │   └── file_loader.py
+│   ├── llm/               # Integração com LLMs
+│   │   └── langchain_wrapper.py
 │   └── config/            # Configuração
 │       └── config.py
-├── analyzer.py            # Script principal (backward compatibility)
-├── main.py                # CLI
+├── analyzer.py            # LLMAnalyzer e ProcedureAnalyzer
+├── table_analyzer.py      # TableAnalyzer
+├── main.py                # CLI (comando analyze unificado)
 ├── config.py              # Wrapper de compatibilidade
 ├── requirements.txt       # Dependências
 ├── requirements-dev.txt   # Dependências de desenvolvimento
@@ -137,12 +148,18 @@ CodeGraphAI/
 │   └── reports/
 │       └── gera_relatorio.prc
 ├── output/                # Resultados gerados
-│   ├── analysis.json
-│   ├── diagram.md
-│   └── hierarchy.md
+│   ├── procedure_analysis.json
+│   ├── table_analysis.json
+│   ├── dependency_graph.png
+│   ├── relationship_graph.png
+│   ├── procedure_diagram.md
+│   ├── table_diagram.md
+│   └── *_hierarchy.md
 └── tests/                 # Testes
     ├── io/               # Testes dos adaptadores
-    └── test_*.py
+    │   ├── test_table_loaders.py
+    │   └── test_*.py
+    └── test_table_analyzer.py
 ```
 
 ## 🎯 Casos de Uso
@@ -163,12 +180,46 @@ analyzer.analyze_from_files("./procedures", "prc")
 
 ### 2. Análise Direta do Banco
 
+**Via CLI (Recomendado):**
+```bash
+# Análise de procedures
+python main.py analyze --analysis-type=procedures \
+    --user usuario --password senha --host localhost \
+    --database meu_banco --schema MEU_SCHEMA
+
+# Análise de tabelas
+python main.py analyze --analysis-type=tables \
+    --user usuario --password senha --host localhost \
+    --database meu_banco --schema MEU_SCHEMA
+
+# Análise de ambos (padrão)
+python main.py analyze --analysis-type=both \
+    --user usuario --password senha --host localhost \
+    --database meu_banco --schema MEU_SCHEMA
+```
+
+**Via Python:**
 ```python
+# Procedures
+analyzer = ProcedureAnalyzer(llm)
 analyzer.analyze_from_database(
     user="usuario",
     password="senha",
     dsn="localhost:1521/ORCL",
     schema="MEU_SCHEMA"
+)
+
+# Tabelas
+from table_analyzer import TableAnalyzer
+table_analyzer = TableAnalyzer(llm)
+table_analyzer.analyze_from_database(
+    user="usuario",
+    password="senha",
+    dsn="localhost",
+    schema="MEU_SCHEMA",
+    db_type="postgresql",
+    database="meu_banco",
+    port=5432
 )
 ```
 
@@ -177,6 +228,7 @@ analyzer.analyze_from_database(
 - Procedures não estão em arquivos
 - Precisa de metadados adicionais do banco
 - Análise ad-hoc de ambiente de produção
+- Análise de estrutura de tabelas (DDL, relacionamentos, índices)
 
 ### 3. Análise Híbrida
 
@@ -195,21 +247,53 @@ print(f"Apenas em arquivos: {file_set - db_set}")
 print(f"Apenas no banco: {db_set - file_set}")
 ```
 
+### 4. Análise de Tabelas
+
+**Via CLI:**
+```bash
+# Analisar apenas tabelas
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql --user user --password pass \
+    --host localhost --port 5432 --database meu_banco \
+    --schema public
+
+# Analisar tabelas e procedures juntos
+python main.py analyze --analysis-type=both \
+    --db-type postgresql --user user --password pass \
+    --host localhost --port 5432 --database meu_banco \
+    --schema public
+```
+
+**O que é analisado:**
+- Estrutura completa (DDL)
+- Colunas com tipos, constraints, defaults
+- Índices (B-tree, Hash, etc.)
+- Foreign keys e relacionamentos
+- Estatísticas (row count, table size)
+- Propósito de negócio (via LLM)
+- Complexidade baseada em estrutura
+
+**Exportação:**
+- `table_analysis.json`: Metadados completos
+- `relationship_graph.png`: Grafo de relacionamentos via FKs
+- `table_diagram.md`: Diagrama ER em Mermaid
+- `table_hierarchy.md`: Hierarquia por níveis de dependência
+
 ## 📊 Tipos de Visualização
 
-### 1. Diagrama de Dependências
+### 1. Diagrama de Dependências (Procedures)
 
 ```python
 analyzer.export_mermaid_diagram("diagram.md", max_nodes=50)
 ```
 
-Gera grafo mostrando todas as dependências com cores por complexidade:
+Gera grafo mostrando todas as dependências entre procedures com cores por complexidade:
 
 - 🔴 **Vermelho**: Alta complexidade (8-10)
 - 🟡 **Amarelo**: Média complexidade (5-7)
 - 🟢 **Verde**: Baixa complexidade (1-4)
 
-### 2. Hierarquia por Níveis
+### 2. Hierarquia por Níveis (Procedures)
 
 ```python
 analyzer.export_mermaid_hierarchy("hierarchy.md")
@@ -221,7 +305,7 @@ Organiza procedures em árvore hierárquica:
 - **Nível 1**: Dependem apenas do nível 0
 - **Nível N**: Dependem até o nível N-1
 
-### 3. Flowchart Detalhado
+### 3. Flowchart Detalhado (Procedures)
 
 ```python
 analyzer.export_mermaid_flowchart("SCHEMA.PROCEDURE_NAME")
@@ -233,6 +317,39 @@ Mostra fluxo completo de uma procedure:
 - Tabelas acessadas
 - Procedures chamadas
 - Lógica de negócio
+
+### 4. Diagrama ER (Tabelas)
+
+```python
+table_analyzer.export_mermaid_diagram("table_diagram.md")
+```
+
+Gera diagrama entidade-relacionamento mostrando:
+
+- Tabelas e suas colunas
+- Foreign keys e relacionamentos
+- Índices e constraints
+- Complexidade por tabela
+
+### 5. Hierarquia de Relacionamentos (Tabelas)
+
+```python
+table_analyzer.export_mermaid_hierarchy("table_hierarchy.md")
+```
+
+Organiza tabelas por níveis de dependência baseado em foreign keys:
+
+- **Nível 0**: Tabelas base (sem FKs ou apenas FKs externas)
+- **Nível 1**: Dependem apenas do nível 0
+- **Nível N**: Dependem até o nível N-1
+
+### 6. Grafo de Relacionamentos (Tabelas)
+
+```python
+table_analyzer.visualize_relationships("relationship_graph.png")
+```
+
+Gera grafo visual (PNG) mostrando todas as relações entre tabelas via foreign keys.
 
 ## 🔧 Configuração Avançada
 
@@ -285,22 +402,108 @@ pip install mysql-connector-python>=8.0.0       # MySQL
 ```
 
 **Uso via CLI:**
+
+O comando `analyze` permite escolher o tipo de análise através da flag `--analysis-type`:
+
+- `tables`: Analisa apenas tabelas (DDL, relacionamentos, índices)
+- `procedures`: Analisa apenas stored procedures
+- `both`: Analisa ambos (padrão)
+
 ```bash
-# Oracle (padrão)
-python main.py analyze-db --user user --password pass --dsn localhost:1521/ORCL
+# Análise de procedures apenas (Oracle)
+python main.py analyze --analysis-type=procedures --user user --password pass \
+    --dsn localhost:1521/ORCL
 
-# PostgreSQL
-python main.py analyze-db --db-type postgresql --user user --password pass \
-    --host localhost --port 5432 --database meu_banco
+# Análise de tabelas apenas (PostgreSQL)
+python main.py analyze --analysis-type=tables --db-type postgresql \
+    --user user --password pass --host localhost --port 5432 \
+    --database meu_banco --schema public
 
-# SQL Server
-python main.py analyze-db --db-type mssql --user user --password pass \
-    --host localhost --port 1433 --database meu_banco
+# Análise de ambos (padrão) - PostgreSQL
+python main.py analyze --analysis-type=both --db-type postgresql \
+    --user user --password pass --host localhost --port 5432 \
+    --database meu_banco --schema public
 
-# MySQL
-python main.py analyze-db --db-type mysql --user user --password pass \
-    --host localhost --port 3306 --database meu_banco
+# SQL Server - Análise de procedures
+python main.py analyze --analysis-type=procedures --db-type mssql \
+    --user user --password pass --host localhost --port 1433 \
+    --database meu_banco
+
+# MySQL - Análise de tabelas
+python main.py analyze --analysis-type=tables --db-type mysql \
+    --user user --password pass --host localhost --port 3306 \
+    --database meu_banco
 ```
+
+**Opções de exportação:**
+```bash
+# Exportar apenas JSON
+python main.py analyze --analysis-type=both --export-json \
+    --user user --password pass --host localhost --database meu_banco
+
+# Exportar JSON, PNG e Mermaid
+python main.py analyze --analysis-type=both --export-json --export-png --export-mermaid \
+    --user user --password pass --host localhost --database meu_banco
+
+# Quando analysis-type=both, arquivos são exportados separadamente:
+# - procedure_analysis.json / table_analysis.json
+# - dependency_graph.png / relationship_graph.png
+# - procedure_diagram.md / table_diagram.md
+```
+
+### Dry-Run Mode
+
+O modo dry-run permite validar configurações e parâmetros sem executar análises reais, útil para:
+- Validar configurações antes de executar análises
+- Verificar parâmetros sem custos de API ou conexões de banco
+- Testar configurações em ambientes de desenvolvimento
+- Integração em pipelines CI/CD
+
+**Uso:**
+```bash
+# Validar configuração antes de executar análise de banco
+python main.py analyze --dry-run --analysis-type=both \
+    --user postgres --password changeme --host localhost \
+    --database postgres --schema public
+
+# Validar análise de arquivos
+python main.py analyze-files --dry-run --directory ./procedures
+```
+
+**O que é validado:**
+- ✅ Configuração de banco de dados (tipo, parâmetros, porta)
+- ✅ Configuração LLM (modo, provider, API keys)
+- ✅ Parâmetros de análise (tipo, limit, output directory)
+- ✅ Permissões de escrita no diretório de saída
+- ✅ Existência de arquivos .prc (para analyze-files)
+
+**Formato de saída:**
+```
+🔍 DRY-RUN MODE - Validação de Configuração
+==========================================
+
+✅ Informações:
+   - Tipo de banco: postgresql
+   - Host: localhost:5432
+   - Database: postgres
+   - Schema: public
+   - Modo LLM: api
+   - Provider: anthropic
+   - Tipo de análise: both
+
+⚠️  Avisos:
+   - API key não verificada (dry-run não valida autenticação)
+
+📊 Estimativas:
+   - Limit: 10 entidades
+
+✅ Validação concluída com sucesso!
+   Execute sem --dry-run para realizar a análise.
+```
+
+**Códigos de saída:**
+- `0`: Validação bem-sucedida (sem erros)
+- `1`: Validação falhou (erros encontrados)
 
 **Variáveis de ambiente:**
 ```bash

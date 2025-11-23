@@ -13,6 +13,7 @@ from tqdm import tqdm
 from analyzer import LLMAnalyzer, ProcedureAnalyzer
 from table_analyzer import TableAnalyzer
 from app.core.models import CodeGraphAIError
+from app.core.dry_mode import DryRunValidator, DryRunResult
 from config import get_config
 
 
@@ -60,14 +61,99 @@ def cli(ctx, verbose, log_file):
 @click.option('--export-json', is_flag=True, default=True, help='Exportar JSON (padrão: True)')
 @click.option('--export-png', is_flag=True, default=True, help='Exportar grafo PNG (padrão: True)')
 @click.option('--export-mermaid', is_flag=True, default=False, help='Exportar diagramas Mermaid')
+@click.option('--dry-run', is_flag=True, default=False, help='Modo dry-run: valida sem executar')
 @click.pass_context
 def analyze_files(ctx, directory, extension, output_dir, model, device,
-                  export_json, export_png, export_mermaid):
+                  export_json, export_png, export_mermaid, dry_run):
     """Analisa procedures a partir de arquivos .prc"""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
 
     try:
+        # Modo dry-run: valida sem executar
+        if dry_run:
+            click.echo("\n" + "=" * 60)
+            click.echo("🔍 DRY-RUN MODE - Validação de Configuração")
+            click.echo("=" * 60)
+
+            validator = DryRunValidator(config)
+            result = DryRunResult(is_valid=True)
+
+            # Valida diretório
+            dir_path = Path(directory)
+            if not dir_path.exists():
+                result.add_error(f"Diretório não existe: {directory}")
+            elif not dir_path.is_dir():
+                result.add_error(f"Caminho não é um diretório: {directory}")
+            else:
+                result.add_info(f"Diretório: {directory}")
+
+                # Verifica arquivos .prc
+                pattern = f"*.{extension}"
+                prc_files = list(dir_path.rglob(pattern))
+                if not prc_files:
+                    result.add_warning(f"Nenhum arquivo .{extension} encontrado em {directory}")
+                else:
+                    result.add_info(f"Arquivos encontrados: {len(prc_files)}")
+                    result.estimated_operations["files_count"] = len(prc_files)
+
+            # Valida LLM
+            llm_result = validator.validate_llm_config(
+                model_name=model,
+                device=device
+            )
+            result.errors.extend(llm_result.errors)
+            result.warnings.extend(llm_result.warnings)
+            result.info.extend(llm_result.info)
+
+            # Valida output_dir
+            params_result = validator.validate_analysis_params(
+                analysis_type='procedures',  # analyze_files sempre analisa procedures
+                output_dir=output_dir
+            )
+            result.errors.extend(params_result.errors)
+            result.warnings.extend(params_result.warnings)
+            result.info.extend(params_result.info)
+            result.estimated_operations.update(params_result.estimated_operations)
+
+            # Determina validade final
+            result.is_valid = len(result.errors) == 0
+
+            # Exibe erros
+            if result.errors:
+                click.echo("\n❌ Erros:")
+                for error in result.errors:
+                    click.echo(f"   - {error}", err=True)
+
+            # Exibe warnings
+            if result.warnings:
+                click.echo("\n⚠️  Avisos:")
+                for warning in result.warnings:
+                    click.echo(f"   - {warning}")
+
+            # Exibe informações
+            if result.info:
+                click.echo("\n✅ Informações:")
+                for info in result.info:
+                    click.echo(f"   - {info}")
+
+            # Exibe estimativas
+            if result.estimated_operations:
+                click.echo("\n📊 Estimativas:")
+                for key, value in result.estimated_operations.items():
+                    click.echo(f"   - {key}: {value}")
+
+            # Resumo final
+            click.echo("\n" + "=" * 60)
+            if result.is_valid:
+                click.echo("✅ Validação concluída com sucesso!")
+                click.echo("   Execute sem --dry-run para realizar a análise.")
+                sys.exit(0)
+            else:
+                click.echo("❌ Validação falhou!")
+                click.echo("   Corrija os erros antes de executar a análise.")
+                sys.exit(1)
+
         # Resolve caminhos
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -155,9 +241,10 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
 @click.option('--export-json', is_flag=True, default=True, help='Exportar JSON (padrão: True)')
 @click.option('--export-png', is_flag=True, default=True, help='Exportar grafo PNG (padrão: True)')
 @click.option('--export-mermaid', is_flag=True, default=False, help='Exportar diagramas Mermaid')
+@click.option('--dry-run', is_flag=True, default=False, help='Modo dry-run: valida sem executar')
 @click.pass_context
 def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, database, schema, limit,
-           output_dir, model, device, export_json, export_png, export_mermaid):
+           output_dir, model, device, export_json, export_png, export_mermaid, dry_run):
     """Analisa tabelas e/ou procedures do banco de dados"""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
@@ -182,6 +269,63 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
             connection_host = dsn
         else:
             connection_host = host
+
+        # Modo dry-run: valida sem executar
+        if dry_run:
+            click.echo("\n" + "=" * 60)
+            click.echo("🔍 DRY-RUN MODE - Validação de Configuração")
+            click.echo("=" * 60)
+
+            validator = DryRunValidator(config)
+            result = validator.validate_full_analysis(
+                analysis_type=analysis_type,
+                db_type=db_type,
+                user=user,
+                password=password,
+                host=connection_host,
+                port=port,
+                database=database,
+                schema=schema,
+                limit=limit,
+                output_dir=output_dir,
+                llm_mode=config.llm_mode,
+                llm_provider=config.llm_provider
+            )
+
+            # Exibe erros
+            if result.errors:
+                click.echo("\n❌ Erros:")
+                for error in result.errors:
+                    click.echo(f"   - {error}", err=True)
+
+            # Exibe warnings
+            if result.warnings:
+                click.echo("\n⚠️  Avisos:")
+                for warning in result.warnings:
+                    click.echo(f"   - {warning}")
+
+            # Exibe informações
+            if result.info:
+                click.echo("\n✅ Informações:")
+                for info in result.info:
+                    click.echo(f"   - {info}")
+
+            # Exibe estimativas
+            if result.estimated_operations:
+                click.echo("\n📊 Estimativas:")
+                for key, value in result.estimated_operations.items():
+                    click.echo(f"   - {key}: {value}")
+
+            # Resumo final
+            click.echo("\n" + "=" * 60)
+            if result.is_valid:
+                click.echo("✅ Validação concluída com sucesso!")
+                click.echo("   Execute sem --dry-run para realizar a análise.")
+                sys.exit(0)
+            else:
+                click.echo("❌ Validação falhou!")
+                click.echo("   Corrija os erros antes de executar a análise.")
+                sys.exit(1)
 
         # Resolve caminhos
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
