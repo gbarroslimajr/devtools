@@ -6,7 +6,8 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
-from analyzer import ProcedureLoader, ProcedureLoadError, ValidationError
+from analyzer import ProcedureLoader
+from app.core.models import ProcedureLoadError, ValidationError
 
 
 class TestProcedureLoaderFromFiles:
@@ -74,7 +75,8 @@ class TestProcedureLoaderFromDatabase:
             ProcedureLoader.from_database("user", "", "dsn")
 
     def test_validation_empty_dsn(self):
-        """Testa validação de DSN vazio"""
-        with pytest.raises(ValidationError, match="DSN"):
+        """Testa validação de DSN/host vazio"""
+        # Agora a validação é feita no DatabaseConfig que valida host
+        with pytest.raises(ValidationError):
             ProcedureLoader.from_database("user", "pass", "")
 

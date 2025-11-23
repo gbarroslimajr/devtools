@@ -6,7 +6,8 @@ import pytest
 import json
 import tempfile
 from pathlib import Path
-from analyzer import ProcedureAnalyzer, ProcedureInfo
+from analyzer import ProcedureAnalyzer
+from app.core.models import ProcedureInfo
 from tests.conftest import mock_llm_analyzer, sample_procedure_code
 
 

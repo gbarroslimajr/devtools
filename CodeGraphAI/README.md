@@ -16,7 +16,7 @@ CodeGraphAI é uma ferramenta Python que utiliza LLMs (Large Language Models) pa
 - 📈 **Cálculo de Complexidade** - Score de 1-10 baseado em estrutura e lógica do código
 - 🎨 **Visualizações Mermaid** - Gera diagramas interativos em markdown
 - 💾 **Análise de Arquivos** - Trabalha com arquivos `.prc` locais (sem necessidade de conexão ao banco)
-- 🔄 **Agnóstico de Banco** - Suporta Oracle, SQL Server, PostgreSQL e outros (extensível)
+- 🔄 **Agnóstico de Banco** - Suporta Oracle, PostgreSQL, SQL Server e MySQL através de adaptadores
 
 ## 🚀 Quick Start
 
@@ -65,15 +65,32 @@ analyzer.export_mermaid_hierarchy("hierarchy.md")
 ### Dependências Python
 
 ```txt
-oracledb>=1.4.0          # Conexão Oracle (opcional)
+# Bancos de Dados (opcional - instale apenas os necessários)
+oracledb>=1.4.0              # Oracle
+psycopg2-binary>=2.9.0       # PostgreSQL
+pyodbc>=5.0.0                # SQL Server (via ODBC)
+mysql-connector-python>=8.0.0  # MySQL
+
+# LangChain - Framework para LLM
 langchain>=0.1.0
 langchain-community>=0.0.13
+
+# Transformers e PyTorch - Modelos de IA
 transformers>=4.35.0
 torch>=2.0.0
-networkx>=3.0
-matplotlib>=3.7.0
 accelerate>=0.25.0
-bitsandbytes>=0.41.0     # Para quantização 8-bit
+bitsandbytes>=0.41.0         # Para quantização 8-bit
+
+# Análise de Grafos
+networkx>=3.0
+
+# Visualização
+matplotlib>=3.7.0
+
+# CLI e Utilitários
+click>=8.0.0
+tqdm>=4.65.0
+python-dotenv>=1.0.0
 ```
 
 ### Hardware Recomendado
@@ -87,19 +104,38 @@ bitsandbytes>=0.41.0     # Para quantização 8-bit
 
 ```
 CodeGraphAI/
-├── analyzer.py              # Script principal
-├── requirements.txt         # Dependências
-├── README.md               # Este arquivo
-├── procedures/             # Diretório com arquivos .prc
+├── app/                    # Módulos principais
+│   ├── core/              # Modelos e exceções
+│   │   └── models.py
+│   ├── io/                # Adaptadores de banco de dados
+│   │   ├── base.py        # Interface abstrata
+│   │   ├── factory.py     # Factory pattern
+│   │   ├── oracle_loader.py
+│   │   ├── postgres_loader.py
+│   │   ├── mssql_loader.py
+│   │   ├── mysql_loader.py
+│   │   └── file_loader.py
+│   └── config/            # Configuração
+│       └── config.py
+├── analyzer.py            # Script principal (backward compatibility)
+├── main.py                # CLI
+├── config.py              # Wrapper de compatibilidade
+├── requirements.txt       # Dependências
+├── requirements-dev.txt   # Dependências de desenvolvimento
+├── README.md              # Este arquivo
+├── procedures/            # Diretório com arquivos .prc
 │   ├── core/
 │   │   ├── calc_saldo.prc
 │   │   └── valida_cliente.prc
 │   └── reports/
 │       └── gera_relatorio.prc
-└── output/                 # Resultados gerados
-    ├── analysis.json
-    ├── diagram.md
-    └── hierarchy.md
+├── output/                # Resultados gerados
+│   ├── analysis.json
+│   ├── diagram.md
+│   └── hierarchy.md
+└── tests/                 # Testes
+    ├── io/               # Testes dos adaptadores
+    └── test_*.py
 ```
 
 ## 🎯 Casos de Uso
@@ -192,6 +228,53 @@ Mostra fluxo completo de uma procedure:
 - Lógica de negócio
 
 ## 🔧 Configuração Avançada
+
+### Suporte a Múltiplos Bancos de Dados
+
+CodeGraphAI suporta múltiplos bancos de dados através de adaptadores:
+
+- **Oracle**: Usa `oracledb` (padrão para backward compatibility)
+- **PostgreSQL**: Usa `psycopg2-binary`
+- **SQL Server**: Usa `pyodbc` ou `pymssql`
+- **MySQL**: Usa `mysql-connector-python` ou `pymysql`
+
+**Instalação de drivers:**
+```bash
+# Instalar apenas o necessário
+pip install oracledb>=1.4.0                    # Oracle
+pip install psycopg2-binary>=2.9.0              # PostgreSQL
+pip install pyodbc>=5.0.0                       # SQL Server
+pip install mysql-connector-python>=8.0.0       # MySQL
+```
+
+**Uso via CLI:**
+```bash
+# Oracle (padrão)
+python main.py analyze-db --user user --password pass --dsn localhost:1521/ORCL
+
+# PostgreSQL
+python main.py analyze-db --db-type postgresql --user user --password pass \
+    --host localhost --port 5432 --database meu_banco
+
+# SQL Server
+python main.py analyze-db --db-type mssql --user user --password pass \
+    --host localhost --port 1433 --database meu_banco
+
+# MySQL
+python main.py analyze-db --db-type mysql --user user --password pass \
+    --host localhost --port 3306 --database meu_banco
+```
+
+**Variáveis de ambiente:**
+```bash
+CODEGRAPHAI_DB_TYPE=postgresql
+CODEGRAPHAI_DB_HOST=localhost
+CODEGRAPHAI_DB_PORT=5432
+CODEGRAPHAI_DB_NAME=meu_banco
+CODEGRAPHAI_DB_USER=usuario
+CODEGRAPHAI_DB_PASSWORD=senha
+CODEGRAPHAI_DB_SCHEMA=public
+```
 
 ### Modelos LLM Suportados
 

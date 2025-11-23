@@ -10,7 +10,8 @@ from typing import Optional
 import click
 from tqdm import tqdm
 
-from analyzer import LLMAnalyzer, ProcedureAnalyzer, CodeGraphAIError
+from analyzer import LLMAnalyzer, ProcedureAnalyzer
+from app.core.models import CodeGraphAIError
 from config import get_config
 
 
@@ -128,10 +129,15 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
 
 
 @cli.command()
+@click.option('--db-type', type=click.Choice(['oracle', 'postgresql', 'mssql', 'mysql']),
+              default=None, help='Tipo de banco de dados (padrão: oracle para backward compatibility)')
 @click.option('--user', required=True, help='Usuário do banco de dados')
 @click.option('--password', required=True, prompt=True, hide_input=True,
               help='Senha do banco de dados')
-@click.option('--dsn', required=True, help='DSN (host:port/service)')
+@click.option('--dsn', help='DSN (host:port/service para Oracle, host para outros)')
+@click.option('--host', help='Host do banco de dados (alternativa a --dsn)')
+@click.option('--port', type=int, help='Porta do banco de dados')
+@click.option('--database', help='Nome do banco de dados (obrigatório para PostgreSQL, SQL Server, MySQL)')
 @click.option('--schema', help='Schema específico (opcional)')
 @click.option('--limit', type=int, help='Limite de procedures para análise')
 @click.option('--output-dir', '-o', type=click.Path(), help='Diretório de saída (padrão: ./output)')
@@ -141,13 +147,34 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
 @click.option('--export-png', is_flag=True, default=True, help='Exportar grafo PNG (padrão: True)')
 @click.option('--export-mermaid', is_flag=True, default=False, help='Exportar diagramas Mermaid')
 @click.pass_context
-def analyze_db(ctx, user, password, dsn, schema, limit, output_dir, model, device,
-              export_json, export_png, export_mermaid):
-    """Analisa procedures diretamente do banco de dados Oracle"""
+def analyze_db(ctx, db_type, user, password, dsn, host, port, database, schema, limit,
+              output_dir, model, device, export_json, export_png, export_mermaid):
+    """Analisa procedures diretamente do banco de dados"""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
 
     try:
+        # Validação de parâmetros
+        if not dsn and not host:
+            click.echo("❌ Erro: --dsn ou --host deve ser fornecido", err=True)
+            sys.exit(1)
+
+        # Determina tipo de banco (default: oracle para backward compatibility)
+        if db_type is None:
+            db_type = 'oracle'  # Backward compatibility
+
+        # Para bancos não-Oracle, database é obrigatório
+        if db_type != 'oracle' and not database:
+            click.echo(f"❌ Erro: --database é obrigatório para {db_type}", err=True)
+            sys.exit(1)
+
+        # Resolve host/dsn
+        if dsn:
+            # Se dsn fornecido, usa como host (ou DSN completo para Oracle)
+            connection_host = dsn
+        else:
+            connection_host = host
+
         # Resolve caminhos
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -161,8 +188,11 @@ def analyze_db(ctx, user, password, dsn, schema, limit, output_dir, model, devic
 
         analyzer = ProcedureAnalyzer(llm)
 
-        click.echo(f"Conectando ao banco {dsn}...")
-        analyzer.analyze_from_database(user, password, dsn, schema, limit)
+        click.echo(f"Conectando ao banco {db_type.upper()} ({connection_host})...")
+        analyzer.analyze_from_database(
+            user, password, connection_host, schema, limit,
+            db_type=db_type
+        )
 
         # Exporta resultados (mesmo código do analyze_files)
         if export_json:

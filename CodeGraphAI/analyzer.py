@@ -1,17 +1,16 @@
 """
-Analisador de Procedures Oracle usando LangChain e LLM Local
-Extrai, analisa e mapeia relacionamentos entre procedures do Oracle
+Analisador de Procedures de Banco de Dados usando LangChain e LLM Local
+Extrai, analisa e mapeia relacionamentos entre stored procedures
 """
 
 import re
 import json
 import logging
 from typing import List, Dict, Set, Tuple, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 from collections import defaultdict
 from pathlib import Path
 
-import oracledb
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain_community.llms import HuggingFacePipeline
@@ -19,6 +18,20 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import networkx as nx
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+
+# Importar modelos e exceções da nova arquitetura
+from app.core.models import (
+    ProcedureInfo,
+    DatabaseType,
+    DatabaseConfig,
+    ProcedureLoadError,
+    LLMAnalysisError,
+    DependencyAnalysisError,
+    ExportError,
+    ValidationError,
+)
+from app.io.factory import create_loader
+from app.io.file_loader import FileLoader
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -53,53 +66,34 @@ class AnalysisConfig:
     GRAPH_DPI = 300
 
 
-# Exceções customizadas
-class CodeGraphAIError(Exception):
-    """Exceção base para erros do CodeGraphAI"""
-    pass
+# Exceções e modelos importados de app.core.models
+# Mantidos aqui para backward compatibility
+# Re-exportar para manter compatibilidade com imports antigos
+# Nota: ProcedureInfo e exceções são importados de app.core.models
+# mas re-exportados aqui para manter compatibilidade
 
-
-class ProcedureLoadError(CodeGraphAIError):
-    """Erro ao carregar procedures"""
-    pass
-
-
-class LLMAnalysisError(CodeGraphAIError):
-    """Erro na análise com LLM"""
-    pass
-
-
-class DependencyAnalysisError(CodeGraphAIError):
-    """Erro na análise de dependências"""
-    pass
-
-
-class ExportError(CodeGraphAIError):
-    """Erro na exportação de resultados"""
-    pass
-
-
-class ValidationError(CodeGraphAIError):
-    """Erro de validação"""
-    pass
-
-
-@dataclass
-class ProcedureInfo:
-    """Informações sobre uma procedure"""
-    name: str
-    schema: str
-    source_code: str
-    parameters: List[Dict[str, str]]
-    called_procedures: Set[str]
-    called_tables: Set[str]
-    business_logic: str
-    complexity_score: int
-    dependencies_level: int
+# Re-exportar classes e exceções para backward compatibility
+__all__ = [
+    'ProcedureInfo',
+    'ProcedureLoader',
+    'LLMAnalyzer',
+    'ProcedureAnalyzer',
+    'CodeGraphAIError',
+    'ProcedureLoadError',
+    'LLMAnalysisError',
+    'DependencyAnalysisError',
+    'ExportError',
+    'ValidationError',
+    'AnalysisConfig',
+]
 
 
 class ProcedureLoader:
-    """Carrega procedures de diferentes fontes"""
+    """
+    Carrega procedures de diferentes fontes
+
+    Mantido para backward compatibility. Usa os novos adaptadores internamente.
+    """
 
     @staticmethod
     def from_files(directory_path: str, extension: str = "prc") -> Dict[str, str]:
@@ -117,130 +111,91 @@ class ProcedureLoader:
             ProcedureLoadError: Se o diretório não existir ou houver erro ao ler arquivos
             ValidationError: Se a extensão for inválida ou arquivos estiverem vazios
         """
-        from pathlib import Path
-
-        # Validação
-        if not extension or not extension.strip():
-            raise ValidationError("Extensão de arquivo não pode ser vazia")
-
-        proc_dir = Path(directory_path)
-        if not proc_dir.exists():
-            raise ProcedureLoadError(f"Diretório não encontrado: {directory_path}")
-
-        if not proc_dir.is_dir():
-            raise ProcedureLoadError(f"Caminho não é um diretório: {directory_path}")
-
-        procedures = {}
-
-        # Busca todos os arquivos com a extensão especificada
-        for file_path in proc_dir.rglob(f"*.{extension}"):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-
-                # Validação: arquivo não pode estar vazio
-                if not content:
-                    logger.warning(f"Arquivo vazio ignorado: {file_path.name}")
-                    continue
-
-                # Usa nome do arquivo sem extensão como identificador
-                proc_name = file_path.stem.upper()
-                procedures[proc_name] = content
-
-                logger.info(f"Carregado: {file_path.name}")
-            except UnicodeDecodeError as e:
-                logger.error(f"Erro de codificação ao ler {file_path}: {e}")
-                raise ProcedureLoadError(f"Erro ao decodificar arquivo {file_path}: {e}")
-            except Exception as e:
-                logger.error(f"Erro ao ler {file_path}: {e}")
-                raise ProcedureLoadError(f"Erro ao ler arquivo {file_path}: {e}")
-
-        if not procedures:
-            raise ProcedureLoadError(f"Nenhum arquivo .{extension} encontrado em {directory_path}")
-
-        logger.info(f"Total de {len(procedures)} procedures carregadas de {directory_path}")
-        return procedures
+        # Usa FileLoader da nova arquitetura
+        return FileLoader.from_files(directory_path, extension)
 
     @staticmethod
-    def from_database(user: str, password: str, dsn: str, schema: Optional[str] = None) -> Dict[str, str]:
+    def from_database(
+        user: str,
+        password: str,
+        dsn: str,
+        schema: Optional[str] = None,
+        db_type: Optional[str] = None
+    ) -> Dict[str, str]:
         """
-        Carrega procedures diretamente do banco Oracle
+        Carrega procedures diretamente do banco de dados
 
         Args:
             user: Usuário do banco de dados
             password: Senha do banco de dados
-            dsn: Data Source Name (host:port/service)
+            dsn: Data Source Name (host:port/service) ou host
             schema: Schema específico (opcional)
+            db_type: Tipo de banco (oracle, postgresql, mssql, mysql).
+                    Se None, assume Oracle para backward compatibility
 
         Returns:
             Dict com schema.nome como chave e código-fonte como valor
 
         Raises:
             ProcedureLoadError: Se houver erro de conexão ou consulta
-            ValidationError: Se credenciais estiverem vazias
+            ValidationError: Se credenciais estiverem vazias ou tipo de banco inválido
         """
-        # Validação
-        if not user or not user.strip():
-            raise ValidationError("Usuário do banco não pode ser vazio")
-        if not password or not password.strip():
-            raise ValidationError("Senha do banco não pode ser vazia")
-        if not dsn or not dsn.strip():
-            raise ValidationError("DSN não pode ser vazio")
+        # Se db_type não fornecido, assume Oracle (backward compatibility)
+        if db_type is None:
+            db_type = DatabaseType.ORACLE
+        else:
+            try:
+                db_type = DatabaseType(db_type.lower())
+            except ValueError:
+                raise ValidationError(
+                    f"Tipo de banco inválido: {db_type}. "
+                    f"Tipos suportados: {[dt.value for dt in DatabaseType]}"
+                )
 
-        try:
-            connection = oracledb.connect(user=user, password=password, dsn=dsn)
-            cursor = connection.cursor()
+        # Para Oracle, DSN pode ser no formato host:port/service
+        # Para outros bancos, DSN é apenas o host
+        if db_type == DatabaseType.ORACLE:
+            # Oracle: DSN pode ser completo ou precisar de parsing
+            # Se contém :, assume formato host:port/service
+            if ':' in dsn:
+                parts = dsn.split('/')
+                host_port = parts[0]
+                database = parts[1] if len(parts) > 1 else None
 
-            # Lista procedures
-            query = "SELECT OWNER, OBJECT_NAME FROM ALL_PROCEDURES WHERE OBJECT_TYPE = 'PROCEDURE'"
-            if schema:
-                # Previne SQL injection usando bind variables
-                query += " AND OWNER = :schema"
-                cursor.execute(query, schema=schema)
+                if ':' in host_port:
+                    host, port_str = host_port.split(':')
+                    try:
+                        port = int(port_str)
+                    except ValueError:
+                        port = None
+                else:
+                    host = host_port
+                    port = None
             else:
-                cursor.execute(query)
+                # DSN simples, assume que é host completo
+                host = dsn
+                port = None
+                database = None
+        else:
+            # Para outros bancos, DSN é apenas host
+            host = dsn
+            port = None
+            database = None
 
-            proc_list = cursor.fetchall()
+        # Cria DatabaseConfig
+        config = DatabaseConfig(
+            db_type=db_type,
+            user=user,
+            password=password,
+            host=host,
+            port=port,
+            database=database,
+            schema=schema
+        )
 
-            procedures = {}
-            for owner, proc_name in proc_list:
-                try:
-                    # Busca código fonte
-                    cursor.execute("""
-                        SELECT TEXT FROM ALL_SOURCE
-                        WHERE OWNER = :owner AND NAME = :name
-                        ORDER BY LINE
-                    """, owner=owner, name=proc_name)
-
-                    lines = cursor.fetchall()
-                    source = ''.join([line[0] for line in lines])
-
-                    # Validação: código não pode estar vazio
-                    if not source.strip():
-                        logger.warning(f"Procedure vazia ignorada: {owner}.{proc_name}")
-                        continue
-
-                    full_name = f"{owner}.{proc_name}"
-                    procedures[full_name] = source
-                    logger.info(f"Carregado: {full_name}")
-                except Exception as e:
-                    logger.error(f"Erro ao carregar {owner}.{proc_name}: {e}")
-                    # Continua com outras procedures mesmo se uma falhar
-
-            connection.close()
-
-            if not procedures:
-                raise ProcedureLoadError("Nenhuma procedure encontrada no banco de dados")
-
-            logger.info(f"Total de {len(procedures)} procedures carregadas do banco")
-            return procedures
-
-        except oracledb.Error as e:
-            logger.error(f"Erro de conexão Oracle: {e}")
-            raise ProcedureLoadError(f"Erro ao conectar ao banco Oracle: {e}")
-        except Exception as e:
-            logger.error(f"Erro inesperado ao carregar procedures do banco: {e}")
-            raise ProcedureLoadError(f"Erro ao carregar procedures do banco: {e}")
+        # Usa factory para criar loader apropriado
+        loader = create_loader(db_type)
+        return loader.load_procedures(config)
 
 
 class LLMAnalyzer:
@@ -296,7 +251,7 @@ class LLMAnalyzer:
         # Análise de lógica de negócio
         self.business_logic_prompt = PromptTemplate(
             input_variables=["code", "proc_name"],
-            template="""Analise a seguinte procedure Oracle e descreva sua lógica de negócio em português de forma concisa:
+            template="""Analise a seguinte stored procedure e descreva sua lógica de negócio em português de forma concisa:
 
 Procedure: {proc_name}
 
@@ -314,7 +269,7 @@ Resposta:"""
         # Identificação de dependências
         self.dependencies_prompt = PromptTemplate(
             input_variables=["code"],
-            template="""Analise o código Oracle abaixo e identifique:
+            template="""Analise o código SQL/PL-SQL abaixo e identifique:
 
 1. Todas as procedures/functions chamadas (formato: schema.procedure ou apenas procedure)
 2. Todas as tabelas acessadas (SELECT, INSERT, UPDATE, DELETE)
@@ -334,7 +289,7 @@ JSON:"""
         # Avaliação de complexidade
         self.complexity_prompt = PromptTemplate(
             input_variables=["code"],
-            template="""Avalie a complexidade da seguinte procedure Oracle em uma escala de 1 a 10, considerando:
+            template="""Avalie a complexidade da seguinte stored procedure em uma escala de 1 a 10, considerando:
 - Número de linhas
 - Estruturas de controle (IFs, LOOPs)
 - Número de tabelas/procedures utilizadas
@@ -571,25 +526,34 @@ class ProcedureAnalyzer:
 
         logger.info("Análise concluída!")
 
-    def analyze_from_database(self, user: str, password: str, dsn: str,
-                              schema: Optional[str] = None, limit: Optional[int] = None,
-                              show_progress: bool = True) -> None:
+    def analyze_from_database(
+        self,
+        user: str,
+        password: str,
+        dsn: str,
+        schema: Optional[str] = None,
+        limit: Optional[int] = None,
+        show_progress: bool = True,
+        db_type: Optional[str] = None
+    ) -> None:
         """
         Analisa procedures diretamente do banco de dados
 
         Args:
             user: Usuário do banco de dados
             password: Senha do banco de dados
-            dsn: Data Source Name
+            dsn: Data Source Name (host:port/service para Oracle, host para outros)
             schema: Schema específico (opcional)
             limit: Limite de procedures para análise (opcional)
             show_progress: Mostrar barra de progresso (padrão: True)
+            db_type: Tipo de banco (oracle, postgresql, mssql, mysql).
+                    Se None, assume Oracle para backward compatibility
 
         Raises:
             ProcedureLoadError: Se houver erro ao carregar do banco
         """
-        # Carrega procedures do banco
-        proc_db = ProcedureLoader.from_database(user, password, dsn, schema)
+        # Carrega procedures do banco usando novo método
+        proc_db = ProcedureLoader.from_database(user, password, dsn, schema, db_type)
 
         if limit and limit > 0:
             proc_db = dict(list(proc_db.items())[:limit])

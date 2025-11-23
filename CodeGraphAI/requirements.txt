@@ -1,8 +1,25 @@
 # CodeGraphAI - Dependências Principais
 # Python 3.8+
 
-# Banco de Dados (Opcional - apenas para análise direta do banco)
+# Bancos de Dados (Opcional - instale apenas os necessários)
+# Oracle
 oracledb>=1.4.0
+
+# PostgreSQL
+psycopg2-binary>=2.9.0
+
+# SQL Server (escolha um dos drivers)
+pyodbc>=5.0.0
+# ou
+# pymssql>=2.2.0
+
+# MySQL (escolha um dos drivers)
+mysql-connector-python>=8.0.0
+# ou
+# pymysql>=1.0.0
+
+# SQLAlchemy (opcional, para abstração futura)
+# sqlalchemy>=2.0.0
 
 # LangChain - Framework para LLM
 langchain>=0.1.0

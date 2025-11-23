@@ -3,7 +3,8 @@ Testes para LLMAnalyzer
 """
 
 import pytest
-from analyzer import LLMAnalyzer, LLMAnalysisError
+from analyzer import LLMAnalyzer
+from app.core.models import LLMAnalysisError
 
 
 class TestLLMAnalyzerRegex:

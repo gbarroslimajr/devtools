@@ -1,0 +1,196 @@
+"""
+Módulo de configuração para CodeGraphAI
+Suporta configuração via variáveis de ambiente e arquivo .env
+"""
+
+import os
+from typing import Optional
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
+
+from app.core.models import DatabaseType
+
+
+class Config:
+    """Configurações do CodeGraphAI"""
+
+    def __init__(self):
+        """Inicializa configurações carregando variáveis de ambiente"""
+        # Carrega .env se disponível
+        if DOTENV_AVAILABLE:
+            env_path = Path(__file__).parent.parent.parent / '.env'
+            if env_path.exists():
+                load_dotenv(env_path)
+                self._env_loaded = True
+            else:
+                self._env_loaded = False
+        else:
+            self._env_loaded = False
+
+        # Modelo LLM
+        self.model_name = os.getenv('CODEGRAPHAI_MODEL_NAME', 'gpt-oss-120b')
+        self.device = os.getenv('CODEGRAPHAI_DEVICE', 'cuda')
+
+        # Parâmetros LLM
+        self.llm_max_new_tokens = int(os.getenv('CODEGRAPHAI_LLM_MAX_NEW_TOKENS', '1024'))
+        self.llm_temperature = float(os.getenv('CODEGRAPHAI_LLM_TEMPERATURE', '0.3'))
+        self.llm_top_p = float(os.getenv('CODEGRAPHAI_LLM_TOP_P', '0.95'))
+        self.llm_repetition_penalty = float(os.getenv('CODEGRAPHAI_LLM_REPETITION_PENALTY', '1.15'))
+
+        # Configuração de banco de dados (genérica)
+        db_type_str = os.getenv('CODEGRAPHAI_DB_TYPE', 'oracle').lower()
+        try:
+            self.db_type = DatabaseType(db_type_str)
+        except ValueError:
+            self.db_type = DatabaseType.ORACLE  # Default para backward compatibility
+
+        self.db_host = os.getenv('CODEGRAPHAI_DB_HOST')
+        self.db_port = os.getenv('CODEGRAPHAI_DB_PORT')
+        self.db_database = os.getenv('CODEGRAPHAI_DB_NAME') or os.getenv('CODEGRAPHAI_DB_DATABASE')
+        self.db_schema = os.getenv('CODEGRAPHAI_DB_SCHEMA')
+
+        # Oracle Database (mantido para backward compatibility)
+        self.oracle_user = os.getenv('CODEGRAPHAI_ORACLE_USER') or os.getenv('CODEGRAPHAI_DB_USER')
+        self.oracle_password = os.getenv('CODEGRAPHAI_ORACLE_PASSWORD') or os.getenv('CODEGRAPHAI_DB_PASSWORD')
+        self.oracle_dsn = os.getenv('CODEGRAPHAI_ORACLE_DSN') or self.db_host
+        self.oracle_schema = os.getenv('CODEGRAPHAI_ORACLE_SCHEMA') or self.db_schema
+
+        # Caminhos padrão
+        self.output_dir = os.getenv('CODEGRAPHAI_OUTPUT_DIR', './output')
+        self.procedures_dir = os.getenv('CODEGRAPHAI_PROCEDURES_DIR', './procedures')
+
+        # Logging
+        self.log_level = os.getenv('CODEGRAPHAI_LOG_LEVEL', 'INFO')
+        self.log_file = os.getenv('CODEGRAPHAI_LOG_FILE')  # Opcional
+
+        # Validação
+        self._validate()
+
+    def _validate(self) -> None:
+        """Valida configurações"""
+        valid_devices = ['cuda', 'cpu']
+        if self.device not in valid_devices:
+            raise ValueError(f"Device deve ser um de: {valid_devices}")
+
+        if self.llm_temperature < 0 or self.llm_temperature > 2:
+            raise ValueError("LLM temperature deve estar entre 0 e 2")
+
+        if self.llm_top_p < 0 or self.llm_top_p > 1:
+            raise ValueError("LLM top_p deve estar entre 0 e 1")
+
+        if self.llm_repetition_penalty < 0:
+            raise ValueError("LLM repetition_penalty deve ser positivo")
+
+    def has_database_config(self) -> bool:
+        """Verifica se configuração de banco está completa"""
+        user = self.oracle_user or os.getenv('CODEGRAPHAI_DB_USER')
+        password = self.oracle_password or os.getenv('CODEGRAPHAI_DB_PASSWORD')
+        host = self.db_host or self.oracle_dsn
+
+        return all([user, password, host])
+
+    def get_database_config(self) -> dict:
+        """
+        Retorna configuração de banco como dict (genérico)
+
+        Returns:
+            Dict com user, password, host, port, database, schema, db_type
+
+        Raises:
+            ValueError: Se configuração estiver incompleta
+        """
+        user = self.oracle_user or os.getenv('CODEGRAPHAI_DB_USER')
+        password = self.oracle_password or os.getenv('CODEGRAPHAI_DB_PASSWORD')
+        host = self.db_host or self.oracle_dsn
+
+        if not all([user, password, host]):
+            raise ValueError(
+                "Configuração de banco incompleta. "
+                "Defina CODEGRAPHAI_DB_USER, CODEGRAPHAI_DB_PASSWORD e CODEGRAPHAI_DB_HOST "
+                "(ou variáveis Oracle para backward compatibility)"
+            )
+
+        port = None
+        if self.db_port:
+            try:
+                port = int(self.db_port)
+            except ValueError:
+                pass
+
+        return {
+            'user': user,
+            'password': password,
+            'host': host,
+            'port': port,
+            'database': self.db_database,
+            'schema': self.db_schema or self.oracle_schema,
+            'db_type': self.db_type
+        }
+
+    def has_oracle_config(self) -> bool:
+        """Verifica se configuração Oracle está completa (backward compatibility)"""
+        return all([self.oracle_user, self.oracle_password, self.oracle_dsn])
+
+    def get_oracle_config(self) -> dict:
+        """
+        Retorna configuração Oracle como dict (backward compatibility)
+
+        Returns:
+            Dict com user, password, dsn, schema
+
+        Raises:
+            ValueError: Se configuração Oracle estiver incompleta
+        """
+        if not self.has_oracle_config():
+            raise ValueError(
+                "Configuração Oracle incompleta. Defina CODEGRAPHAI_ORACLE_USER, "
+                "CODEGRAPHAI_ORACLE_PASSWORD e CODEGRAPHAI_ORACLE_DSN"
+            )
+
+        return {
+            'user': self.oracle_user,
+            'password': self.oracle_password,
+            'dsn': self.oracle_dsn,
+            'schema': self.oracle_schema
+        }
+
+    def __repr__(self) -> str:
+        """Representação string da configuração"""
+        return (f"Config(model_name={self.model_name}, device={self.device}, "
+                f"db_type={self.db_type.value}, output_dir={self.output_dir}, "
+                f"env_loaded={self._env_loaded})")
+
+
+# Instância global de configuração
+_config: Optional[Config] = None
+
+
+def get_config() -> Config:
+    """
+    Retorna instância global de configuração (singleton)
+
+    Returns:
+        Instância de Config
+    """
+    global _config
+    if _config is None:
+        _config = Config()
+    return _config
+
+
+def reload_config() -> Config:
+    """
+    Recarrega configuração (útil para testes)
+
+    Returns:
+        Nova instância de Config
+    """
+    global _config
+    _config = Config()
+    return _config
+

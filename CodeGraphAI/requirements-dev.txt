@@ -17,4 +17,5 @@ isort>=5.12.0
 
 # Type stubs para mypy
 types-oracledb>=1.0.0
+types-psycopg2>=2.9.0
 
