@@ -210,14 +210,55 @@ llm = LLMAnalyzer(model_name="gpt-oss-120b", device="cuda")
 llm = LLMAnalyzer(model_name="gpt-oss-120b", device="cuda", llm_mode="local")
 ```
 
-**Modo API:**
+**Modo API (GenFactory, OpenAI, Anthropic):**
 ```python
 from analyzer import LLMAnalyzer
 from config import get_config
 
 config = get_config()
+config.llm_mode = 'api'
+config.llm_provider = 'openai'  # ou 'anthropic', 'genfactory_llama70b', etc.
+
 llm = LLMAnalyzer(llm_mode="api", config=config)
 logic = llm.analyze_business_logic(code, "calc_saldo")
+```
+
+**Exemplo com OpenAI:**
+```python
+from analyzer import LLMAnalyzer
+from config import get_config
+
+config = get_config()
+config.llm_mode = 'api'
+config.llm_provider = 'openai'
+config.openai = {
+    'api_key': 'sk-...',
+    'model': 'gpt-5.1',
+    'timeout': 60,
+    'temperature': 0.3,
+    'max_tokens': 4000
+}
+
+llm = LLMAnalyzer(config=config)
+```
+
+**Exemplo com Anthropic:**
+```python
+from analyzer import LLMAnalyzer
+from config import get_config
+
+config = get_config()
+config.llm_mode = 'api'
+config.llm_provider = 'anthropic'
+config.anthropic = {
+    'api_key': 'sk-ant-...',
+    'model': 'claude-sonnet-4-5-20250929',
+    'timeout': 60,
+    'temperature': 0.3,
+    'max_tokens': 4000
+}
+
+llm = LLMAnalyzer(config=config)
 ```
 
 ### `ProcedureAnalyzer`
@@ -361,6 +402,107 @@ from app.llm.langchain_wrapper import GenFactoryLLM
 client = GenFactoryClient(config)
 llm = GenFactoryLLM(client)
 ```
+
+### OpenAI Integration
+
+**Localização:** `analyzer.py` (método `_init_openai_llm`)
+
+**Descrição:** Integração com OpenAI usando LangChain `ChatOpenAI`. Suporta modelos mais recentes (gpt-5.1, gpt-5-mini, gpt-5-nano) e Azure OpenAI.
+
+**Configuração via `Config`:**
+```python
+config.openai = {
+    'api_key': 'sk-...',
+    'model': 'gpt-5.1',  # ou gpt-5-mini, gpt-5-nano
+    'base_url': None,  # Opcional para Azure OpenAI
+    'timeout': 60,
+    'temperature': 0.3,
+    'max_tokens': 4000
+}
+```
+
+**Modelos Suportados:**
+- `gpt-5.1`: Modelo mais recente e mais capaz (padrão)
+- `gpt-5-mini`: Versão mais rápida e econômica, ideal para tarefas simples
+- `gpt-5-nano`: Versão mais compacta, para uso em larga escala
+
+**Uso:**
+```python
+from analyzer import LLMAnalyzer
+from config import get_config
+
+config = get_config()
+config.llm_mode = 'api'
+config.llm_provider = 'openai'
+config.openai = {
+    'api_key': 'sk-...',
+    'model': 'gpt-5.1',
+    'base_url': None,
+    'timeout': 60,
+    'temperature': 0.3,
+    'max_tokens': 4000
+}
+
+llm = LLMAnalyzer(config=config)
+```
+
+**Azure OpenAI:**
+Para usar Azure OpenAI, configure `base_url`:
+```python
+config.openai['base_url'] = 'https://seu-recurso.openai.azure.com/'
+```
+
+**Referência:** [LangChain OpenAI Documentation](https://docs.langchain.com/oss/python/langchain/models)
+
+### Anthropic Claude Integration
+
+**Localização:** `analyzer.py` (método `_init_anthropic_llm`)
+
+**Descrição:** Integração com Anthropic Claude usando LangChain `ChatAnthropic`. Suporta Claude Sonnet 4.5 (modelo mais recente).
+
+**Configuração via `Config`:**
+```python
+config.anthropic = {
+    'api_key': 'sk-ant-...',
+    'model': 'claude-sonnet-4-5-20250929',  # Claude Sonnet 4.5
+    'timeout': 60,
+    'temperature': 0.3,
+    'max_tokens': 4000
+}
+```
+
+**Modelos Suportados:**
+- `claude-sonnet-4-5-20250929`: Claude Sonnet 4.5 (modelo mais recente, padrão)
+- `claude-sonnet-4-5`: Alias para o modelo mais recente
+
+**Uso:**
+```python
+from analyzer import LLMAnalyzer
+from config import get_config
+
+config = get_config()
+config.llm_mode = 'api'
+config.llm_provider = 'anthropic'
+config.anthropic = {
+    'api_key': 'sk-ant-...',
+    'model': 'claude-sonnet-4-5-20250929',
+    'timeout': 60,
+    'temperature': 0.3,
+    'max_tokens': 4000
+}
+
+llm = LLMAnalyzer(config=config)
+```
+
+**Referência:** [LangChain Anthropic Documentation](https://docs.langchain.com/oss/python/langchain/models)
+
+### Provider Comparison
+
+| Provider | Modelos | Melhor Para | Requisitos |
+|----------|---------|-------------|------------|
+| **GenFactory** | Llama 70B, Codestral, GPT-OSS-120B | Ambientes corporativos BNP | Token de autorização, certificados SSL |
+| **OpenAI** | gpt-5.1, gpt-5-mini, gpt-5-nano | Análises rápidas e escaláveis | API key OpenAI |
+| **Anthropic** | Claude Sonnet 4.5 | Análises complexas e raciocínio profundo | API key Anthropic |
 
 ---
 

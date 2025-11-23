@@ -103,6 +103,25 @@ class Config:
                 'ca_bundle_path': _parse_ca_bundle_path('CODEGRAPHAI_GENFACTORY_GPTOSS120B_CA_BUNDLE_PATH')
             }
 
+            # OpenAI
+            self.openai = {
+                'api_key': os.getenv('CODEGRAPHAI_OPENAI_API_KEY', ''),
+                'model': os.getenv('CODEGRAPHAI_OPENAI_MODEL', 'gpt-5.1'),
+                'base_url': os.getenv('CODEGRAPHAI_OPENAI_BASE_URL'),  # Opcional para Azure OpenAI
+                'timeout': int(os.getenv('CODEGRAPHAI_OPENAI_TIMEOUT', '60')),
+                'temperature': float(os.getenv('CODEGRAPHAI_OPENAI_TEMPERATURE', '0.3')),
+                'max_tokens': int(os.getenv('CODEGRAPHAI_OPENAI_MAX_TOKENS', '4000'))
+            }
+
+            # Anthropic Claude
+            self.anthropic = {
+                'api_key': os.getenv('CODEGRAPHAI_ANTHROPIC_API_KEY', ''),
+                'model': os.getenv('CODEGRAPHAI_ANTHROPIC_MODEL', 'claude-sonnet-4-5-20250929'),
+                'timeout': int(os.getenv('CODEGRAPHAI_ANTHROPIC_TIMEOUT', '60')),
+                'temperature': float(os.getenv('CODEGRAPHAI_ANTHROPIC_TEMPERATURE', '0.3')),
+                'max_tokens': int(os.getenv('CODEGRAPHAI_ANTHROPIC_MAX_TOKENS', '4000'))
+            }
+
             # Configurações globais API
             self.llm_api_max_output_tokens = int(os.getenv('CODEGRAPHAI_LLM_API_MAX_OUTPUT_TOKENS', '4000'))
             self.llm_reasoning_effort = os.getenv('CODEGRAPHAI_LLM_REASONING_EFFORT', 'high')
@@ -111,6 +130,8 @@ class Config:
             self.genfactory_llama70b = None
             self.genfactory_codestral = None
             self.genfactory_gptoss120b = None
+            self.openai = None
+            self.anthropic = None
             self.llm_api_max_output_tokens = None
             self.llm_reasoning_effort = None
 
@@ -165,7 +186,7 @@ class Config:
 
         # Validar configuração API se modo api
         if self.llm_mode == 'api':
-            valid_providers = ['genfactory_llama70b', 'genfactory_codestral', 'genfactory_gptoss120b']
+            valid_providers = ['genfactory_llama70b', 'genfactory_codestral', 'genfactory_gptoss120b', 'openai', 'anthropic']
             if self.llm_provider not in valid_providers:
                 raise ValueError(f"LLM provider deve ser um de: {valid_providers}")
 
@@ -176,17 +197,28 @@ class Config:
                 provider_config = self.genfactory_codestral
             elif self.llm_provider == 'genfactory_gptoss120b':
                 provider_config = self.genfactory_gptoss120b
+            elif self.llm_provider == 'openai':
+                provider_config = self.openai
+            elif self.llm_provider == 'anthropic':
+                provider_config = self.anthropic
             else:
                 provider_config = None
 
             if not provider_config:
                 raise ValueError(f"Configuração do provider {self.llm_provider} não encontrada")
 
-            if not provider_config.get('authorization_token'):
-                raise ValueError(f"Authorization token é obrigatório para {self.llm_provider}")
-
-            if not provider_config.get('base_url'):
-                raise ValueError(f"Base URL é obrigatória para {self.llm_provider}")
+            # Validação específica por provider
+            if self.llm_provider.startswith('genfactory_'):
+                if not provider_config.get('authorization_token'):
+                    raise ValueError(f"Authorization token é obrigatório para {self.llm_provider}")
+                if not provider_config.get('base_url'):
+                    raise ValueError(f"Base URL é obrigatória para {self.llm_provider}")
+            elif self.llm_provider == 'openai':
+                if not provider_config.get('api_key'):
+                    raise ValueError("OpenAI API key é obrigatória")
+            elif self.llm_provider == 'anthropic':
+                if not provider_config.get('api_key'):
+                    raise ValueError("Anthropic API key é obrigatória")
 
     def has_database_config(self) -> bool:
         """Verifica se configuração de banco está completa"""

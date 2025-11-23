@@ -333,6 +333,92 @@ llm = LLMAnalyzer(llm_mode='api', config=config)
 - Acesso a modelos atualizados
 - Escalabilidade automática
 
+#### Modo API (OpenAI)
+
+CodeGraphAI suporta modelos OpenAI via API, incluindo os modelos mais recentes (gpt-5.1, gpt-5-mini, gpt-5-nano).
+
+**Configuração:**
+
+1. Configure `environment.env` ou `.env`:
+```bash
+CODEGRAPHAI_LLM_MODE=api
+CODEGRAPHAI_LLM_PROVIDER=openai
+
+# OpenAI Configuration
+CODEGRAPHAI_OPENAI_API_KEY=sk-...
+CODEGRAPHAI_OPENAI_MODEL=gpt-5.1  # ou gpt-5-mini, gpt-5-nano
+CODEGRAPHAI_OPENAI_BASE_URL=https://api.openai.com/v1  # Opcional para Azure OpenAI
+CODEGRAPHAI_OPENAI_TIMEOUT=60
+CODEGRAPHAI_OPENAI_TEMPERATURE=0.3
+CODEGRAPHAI_OPENAI_MAX_TOKENS=4000
+```
+
+2. Use no código:
+```python
+from analyzer import LLMAnalyzer
+from config import get_config
+
+config = get_config()
+llm = LLMAnalyzer(llm_mode='api', config=config)
+```
+
+**Modelos Disponíveis:**
+- `gpt-5.1`: Modelo mais recente e mais capaz (padrão)
+- `gpt-5-mini`: Versão mais rápida e econômica, ideal para tarefas simples
+- `gpt-5-nano`: Versão mais compacta, para uso em larga escala
+
+**Quando usar cada modelo:**
+- **gpt-5.1**: Para análises complexas que requerem maior capacidade de raciocínio
+- **gpt-5-mini**: Para análises rápidas e tarefas simples
+- **gpt-5-nano**: Para processamento em larga escala com muitos procedures
+
+**Azure OpenAI:**
+Para usar Azure OpenAI, configure `CODEGRAPHAI_OPENAI_BASE_URL` com o endpoint do Azure:
+```bash
+CODEGRAPHAI_OPENAI_BASE_URL=https://seu-recurso.openai.azure.com/
+```
+
+**Referência:** [LangChain OpenAI Documentation](https://docs.langchain.com/oss/python/langchain/models)
+
+#### Modo API (Anthropic Claude)
+
+CodeGraphAI suporta Anthropic Claude via API, incluindo o modelo mais recente Claude Sonnet 4.5.
+
+**Configuração:**
+
+1. Configure `environment.env` ou `.env`:
+```bash
+CODEGRAPHAI_LLM_MODE=api
+CODEGRAPHAI_LLM_PROVIDER=anthropic
+
+# Anthropic Claude Configuration
+CODEGRAPHAI_ANTHROPIC_API_KEY=sk-ant-...
+CODEGRAPHAI_ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
+CODEGRAPHAI_ANTHROPIC_TIMEOUT=60
+CODEGRAPHAI_ANTHROPIC_TEMPERATURE=0.3
+CODEGRAPHAI_ANTHROPIC_MAX_TOKENS=4000
+```
+
+2. Use no código:
+```python
+from analyzer import LLMAnalyzer
+from config import get_config
+
+config = get_config()
+llm = LLMAnalyzer(llm_mode='api', config=config)
+```
+
+**Modelo Disponível:**
+- `claude-sonnet-4-5-20250929`: Claude Sonnet 4.5 (modelo mais recente, padrão)
+- `claude-sonnet-4-5`: Alias para o modelo mais recente
+
+**Vantagens do Claude Sonnet 4.5:**
+- Excelente para análise de código e raciocínio complexo
+- Suporte a contextos longos
+- Alta qualidade em tarefas de análise e extração
+
+**Referência:** [LangChain Anthropic Documentation](https://docs.langchain.com/oss/python/langchain/models)
+
 ### Quantização para Economia de Memória
 
 Por padrão, usa quantização 8-bit. Para modelos menores:

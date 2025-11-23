@@ -286,7 +286,7 @@ class LLMAnalyzer:
 
     def _init_api_llm(self) -> None:
         """
-        Inicializa modelo LLM via API (GenFactory)
+        Inicializa modelo LLM via API (factory pattern)
 
         Raises:
             LLMAnalysisError: Se houver erro ao inicializar API
@@ -294,44 +294,119 @@ class LLMAnalyzer:
         logger.info(f"Inicializando LLM via API (provider: {self.config.llm_provider})...")
 
         try:
-            # Selecionar configuração do provider
             provider = self.config.llm_provider
 
-            if provider == 'genfactory_llama70b':
-                provider_config = self.config.genfactory_llama70b
-            elif provider == 'genfactory_codestral':
-                provider_config = self.config.genfactory_codestral
-            elif provider == 'genfactory_gptoss120b':
-                provider_config = self.config.genfactory_gptoss120b
+            if provider.startswith('genfactory_'):
+                self._init_genfactory_llm(provider)
+            elif provider == 'openai':
+                self._init_openai_llm()
+            elif provider == 'anthropic':
+                self._init_anthropic_llm()
             else:
                 raise LLMAnalysisError(f"Provider não suportado: {provider}")
-
-            # Validar configuração
-            if not provider_config:
-                raise LLMAnalysisError(f"Configuração do provider {provider} não encontrada")
-
-            if not provider_config.get('authorization_token'):
-                raise LLMAnalysisError(f"Authorization token é obrigatório para {provider}")
-
-            if not provider_config.get('base_url'):
-                raise LLMAnalysisError(f"Base URL é obrigatória para {provider}")
-
-            # Criar cliente GenFactory
-            from app.llm.genfactory_client import GenFactoryClient
-            from app.llm.langchain_wrapper import GenFactoryLLM
-
-            client = GenFactoryClient(provider_config)
-
-            # Criar wrapper LangChain
-            self.llm = GenFactoryLLM(client)
-
-            logger.info(f"LLM via API inicializado: {provider_config.get('name', provider)}")
 
         except LLMAnalysisError:
             raise
         except Exception as e:
             logger.error(f"Erro ao inicializar LLM via API: {e}")
             raise LLMAnalysisError(f"Erro ao inicializar LLM via API: {e}")
+
+    def _init_genfactory_llm(self, provider: str) -> None:
+        """
+        Inicializa GenFactory LLM
+
+        Args:
+            provider: Nome do provider GenFactory (genfactory_llama70b, genfactory_codestral, genfactory_gptoss120b)
+
+        Raises:
+            LLMAnalysisError: Se houver erro ao inicializar GenFactory
+        """
+        # Selecionar configuração do provider
+        if provider == 'genfactory_llama70b':
+            provider_config = self.config.genfactory_llama70b
+        elif provider == 'genfactory_codestral':
+            provider_config = self.config.genfactory_codestral
+        elif provider == 'genfactory_gptoss120b':
+            provider_config = self.config.genfactory_gptoss120b
+        else:
+            raise LLMAnalysisError(f"Provider GenFactory não suportado: {provider}")
+
+        # Validar configuração
+        if not provider_config:
+            raise LLMAnalysisError(f"Configuração do provider {provider} não encontrada")
+
+        if not provider_config.get('authorization_token'):
+            raise LLMAnalysisError(f"Authorization token é obrigatório para {provider}")
+
+        if not provider_config.get('base_url'):
+            raise LLMAnalysisError(f"Base URL é obrigatória para {provider}")
+
+        # Criar cliente GenFactory
+        from app.llm.genfactory_client import GenFactoryClient
+        from app.llm.langchain_wrapper import GenFactoryLLM
+
+        client = GenFactoryClient(provider_config)
+
+        # Criar wrapper LangChain
+        self.llm = GenFactoryLLM(client)
+
+        logger.info(f"GenFactory LLM inicializado: {provider_config.get('name', provider)}")
+
+    def _init_openai_llm(self) -> None:
+        """
+        Inicializa OpenAI via LangChain usando ChatOpenAI
+
+        Raises:
+            LLMAnalysisError: Se houver erro ao inicializar OpenAI
+        """
+        from langchain_openai import ChatOpenAI
+
+        config = self.config.openai
+
+        if not config or not config.get('api_key'):
+            raise LLMAnalysisError("OpenAI API key é obrigatória")
+
+        kwargs = {
+            'model': config.get('model', 'gpt-5.1'),
+            'temperature': config.get('temperature', 0.3),
+            'max_tokens': config.get('max_tokens', 4000),
+            'timeout': config.get('timeout', 60),
+        }
+
+        # Base URL customizado (para Azure OpenAI)
+        if config.get('base_url'):
+            kwargs['base_url'] = config['base_url']
+
+        self.llm = ChatOpenAI(
+            api_key=config['api_key'],
+            **kwargs
+        )
+
+        logger.info(f"OpenAI inicializado: {kwargs['model']}")
+
+    def _init_anthropic_llm(self) -> None:
+        """
+        Inicializa Anthropic Claude via LangChain usando ChatAnthropic
+
+        Raises:
+            LLMAnalysisError: Se houver erro ao inicializar Anthropic
+        """
+        from langchain_anthropic import ChatAnthropic
+
+        config = self.config.anthropic
+
+        if not config or not config.get('api_key'):
+            raise LLMAnalysisError("Anthropic API key é obrigatória")
+
+        self.llm = ChatAnthropic(
+            api_key=config['api_key'],
+            model=config.get('model', 'claude-sonnet-4-5-20250929'),
+            temperature=config.get('temperature', 0.3),
+            max_tokens=config.get('max_tokens', 4000),
+            timeout=config.get('timeout', 60)
+        )
+
+        logger.info(f"Anthropic Claude inicializado: {config.get('model')}")
 
     def _setup_prompts(self) -> None:
         """Configura templates de prompts para análise"""

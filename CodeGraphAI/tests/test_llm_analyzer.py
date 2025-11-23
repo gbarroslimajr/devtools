@@ -166,3 +166,106 @@ class TestLLMAnalyzerInitialization:
                 assert analyzer.llm_mode == 'local'
                 assert analyzer.llm is not None
 
+    @patch('analyzer.ChatOpenAI')
+    def test_init_openai_mode(self, mock_chat_openai):
+        """Testa inicialização em modo OpenAI"""
+        from app.config.config import Config
+
+        mock_llm = MagicMock()
+        mock_chat_openai.return_value = mock_llm
+
+        config = Config()
+        config.llm_mode = 'api'
+        config.llm_provider = 'openai'
+        config.openai = {
+            'api_key': 'sk-test-key',
+            'model': 'gpt-5.1',
+            'base_url': None,
+            'timeout': 60,
+            'temperature': 0.3,
+            'max_tokens': 4000
+        }
+
+        analyzer = LLMAnalyzer(config=config)
+
+        assert analyzer.llm_mode == 'api'
+        assert analyzer.llm is not None
+        mock_chat_openai.assert_called_once()
+
+    @patch('analyzer.ChatAnthropic')
+    def test_init_anthropic_mode(self, mock_chat_anthropic):
+        """Testa inicialização em modo Anthropic"""
+        from app.config.config import Config
+
+        mock_llm = MagicMock()
+        mock_chat_anthropic.return_value = mock_llm
+
+        config = Config()
+        config.llm_mode = 'api'
+        config.llm_provider = 'anthropic'
+        config.anthropic = {
+            'api_key': 'sk-ant-test-key',
+            'model': 'claude-sonnet-4-5-20250929',
+            'timeout': 60,
+            'temperature': 0.3,
+            'max_tokens': 4000
+        }
+
+        analyzer = LLMAnalyzer(config=config)
+
+        assert analyzer.llm_mode == 'api'
+        assert analyzer.llm is not None
+        mock_chat_anthropic.assert_called_once()
+
+    def test_factory_pattern_provider_dispatch(self):
+        """Testa que factory pattern funciona corretamente para diferentes providers"""
+        from app.config.config import Config
+
+        providers = ['genfactory_llama70b', 'openai', 'anthropic']
+
+        for provider in providers:
+            config = Config()
+            config.llm_mode = 'api'
+            config.llm_provider = provider
+
+            if provider.startswith('genfactory_'):
+                config.genfactory_llama70b = {
+                    'base_url': 'https://api.test.com',
+                    'model': 'test-model',
+                    'authorization_token': 'test-token',
+                    'timeout': 20000,
+                    'verify_ssl': False,
+                    'ca_bundle_path': []
+                }
+                with patch('analyzer.GenFactoryClient') as mock_client, \
+                     patch('analyzer.GenFactoryLLM') as mock_llm:
+                    mock_client.return_value = Mock()
+                    mock_llm.return_value = Mock()
+                    analyzer = LLMAnalyzer(config=config)
+                    assert analyzer.llm is not None
+            elif provider == 'openai':
+                config.openai = {
+                    'api_key': 'sk-test-key',
+                    'model': 'gpt-5.1',
+                    'base_url': None,
+                    'timeout': 60,
+                    'temperature': 0.3,
+                    'max_tokens': 4000
+                }
+                with patch('analyzer.ChatOpenAI') as mock_chat:
+                    mock_chat.return_value = Mock()
+                    analyzer = LLMAnalyzer(config=config)
+                    assert analyzer.llm is not None
+            elif provider == 'anthropic':
+                config.anthropic = {
+                    'api_key': 'sk-ant-test-key',
+                    'model': 'claude-sonnet-4-5-20250929',
+                    'timeout': 60,
+                    'temperature': 0.3,
+                    'max_tokens': 4000
+                }
+                with patch('analyzer.ChatAnthropic') as mock_chat:
+                    mock_chat.return_value = Mock()
+                    analyzer = LLMAnalyzer(config=config)
+                    assert analyzer.llm is not None
+
