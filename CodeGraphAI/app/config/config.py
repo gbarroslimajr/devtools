@@ -47,6 +47,73 @@ class Config:
         self.llm_top_p = float(os.getenv('CODEGRAPHAI_LLM_TOP_P', '0.95'))
         self.llm_repetition_penalty = float(os.getenv('CODEGRAPHAI_LLM_REPETITION_PENALTY', '1.15'))
 
+        # Modo LLM (local ou api)
+        self.llm_mode = os.getenv('CODEGRAPHAI_LLM_MODE', 'local').lower()
+
+        # Provider API (se modo api)
+        self.llm_provider = os.getenv('CODEGRAPHAI_LLM_PROVIDER', 'genfactory_llama70b')
+
+        # Configurações GenFactory (apenas se modo api)
+        if self.llm_mode == 'api':
+            # Helper para processar CA bundle path
+            def _parse_ca_bundle_path(env_var: str) -> list:
+                """Processa CA bundle path, suportando ; e , como separadores"""
+                path_str = os.getenv(env_var, '')
+                if not path_str:
+                    return []
+                # Tenta primeiro com ; (Windows), depois com , (Linux/Mac)
+                if ';' in path_str:
+                    return [p.strip() for p in path_str.split(';') if p.strip()]
+                else:
+                    return [p.strip() for p in path_str.split(',') if p.strip()]
+
+            # GenFactory Llama 70B
+            self.genfactory_llama70b = {
+                'name': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_NAME', 'BNP GenFactory Llama 70B'),
+                'base_url': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_BASE_URL', ''),
+                'wire_api': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_WIRE_API', 'chat'),
+                'model': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_MODEL', 'meta-llama-3.3-70b-instruct'),
+                'authorization_token': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_AUTHORIZATION_TOKEN', ''),
+                'timeout': int(os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_TIMEOUT', '20000')),
+                'verify_ssl': os.getenv('CODEGRAPHAI_GENFACTORY_LLAMA70B_VERIFY_SSL', 'true').lower() == 'true',
+                'ca_bundle_path': _parse_ca_bundle_path('CODEGRAPHAI_GENFACTORY_LLAMA70B_CA_BUNDLE_PATH')
+            }
+
+            # GenFactory Codestral
+            self.genfactory_codestral = {
+                'name': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_NAME', 'BNP GenFactory Codestral Latest'),
+                'base_url': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_BASE_URL', ''),
+                'wire_api': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_WIRE_API', 'chat'),
+                'model': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_MODEL', 'codestral-latest'),
+                'authorization_token': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_AUTHORIZATION_TOKEN', ''),
+                'timeout': int(os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_TIMEOUT', '20000')),
+                'verify_ssl': os.getenv('CODEGRAPHAI_GENFACTORY_CODESTRAL_VERIFY_SSL', 'true').lower() == 'true',
+                'ca_bundle_path': _parse_ca_bundle_path('CODEGRAPHAI_GENFACTORY_CODESTRAL_CA_BUNDLE_PATH')
+            }
+
+            # GenFactory GPT-OSS-120B
+            self.genfactory_gptoss120b = {
+                'name': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_NAME', 'BNP GenFactory GPT-OSS-120B'),
+                'base_url': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_BASE_URL', ''),
+                'wire_api': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_WIRE_API', 'chat'),
+                'model': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_MODEL', 'gpt-oss-120b'),
+                'authorization_token': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_AUTHORIZATION_TOKEN', ''),
+                'timeout': int(os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_TIMEOUT', '20000')),
+                'verify_ssl': os.getenv('CODEGRAPHAI_GENFACTORY_GPTOSS120B_VERIFY_SSL', 'true').lower() == 'true',
+                'ca_bundle_path': _parse_ca_bundle_path('CODEGRAPHAI_GENFACTORY_GPTOSS120B_CA_BUNDLE_PATH')
+            }
+
+            # Configurações globais API
+            self.llm_api_max_output_tokens = int(os.getenv('CODEGRAPHAI_LLM_API_MAX_OUTPUT_TOKENS', '4000'))
+            self.llm_reasoning_effort = os.getenv('CODEGRAPHAI_LLM_REASONING_EFFORT', 'high')
+        else:
+            # Inicializar como None se modo local
+            self.genfactory_llama70b = None
+            self.genfactory_codestral = None
+            self.genfactory_gptoss120b = None
+            self.llm_api_max_output_tokens = None
+            self.llm_reasoning_effort = None
+
         # Configuração de banco de dados (genérica)
         db_type_str = os.getenv('CODEGRAPHAI_DB_TYPE', 'oracle').lower()
         try:
@@ -90,6 +157,36 @@ class Config:
 
         if self.llm_repetition_penalty < 0:
             raise ValueError("LLM repetition_penalty deve ser positivo")
+
+        # Validar modo LLM
+        valid_modes = ['local', 'api']
+        if self.llm_mode not in valid_modes:
+            raise ValueError(f"LLM mode deve ser um de: {valid_modes}")
+
+        # Validar configuração API se modo api
+        if self.llm_mode == 'api':
+            valid_providers = ['genfactory_llama70b', 'genfactory_codestral', 'genfactory_gptoss120b']
+            if self.llm_provider not in valid_providers:
+                raise ValueError(f"LLM provider deve ser um de: {valid_providers}")
+
+            # Validar provider selecionado
+            if self.llm_provider == 'genfactory_llama70b':
+                provider_config = self.genfactory_llama70b
+            elif self.llm_provider == 'genfactory_codestral':
+                provider_config = self.genfactory_codestral
+            elif self.llm_provider == 'genfactory_gptoss120b':
+                provider_config = self.genfactory_gptoss120b
+            else:
+                provider_config = None
+
+            if not provider_config:
+                raise ValueError(f"Configuração do provider {self.llm_provider} não encontrada")
+
+            if not provider_config.get('authorization_token'):
+                raise ValueError(f"Authorization token é obrigatório para {self.llm_provider}")
+
+            if not provider_config.get('base_url'):
+                raise ValueError(f"Base URL é obrigatória para {self.llm_provider}")
 
     def has_database_config(self) -> bool:
         """Verifica se configuração de banco está completa"""

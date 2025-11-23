@@ -179,31 +179,44 @@ procedures = loader.load_procedures(config)
 
 **Localização:** `analyzer.py`
 
-**Descrição:** Analisador de código usando LLM local.
+**Descrição:** Analisador de código usando LLM (local ou via API).
 
 **Construtor:**
 ```python
 LLMAnalyzer(
-    model_name: str = "gpt-oss-120b",
-    device: str = "cuda",
-    max_new_tokens: int = 1024,
-    temperature: float = 0.3,
-    top_p: float = 0.95,
-    repetition_penalty: float = 1.15
+    model_name: Optional[str] = None,
+    device: Optional[str] = None,
+    llm_mode: Optional[str] = None,
+    config: Optional[Config] = None
 )
 ```
 
 **Métodos:**
 
 - `analyze_business_logic(code: str, proc_name: str) -> str`: Analisa lógica de negócio
-- `analyze_dependencies(code: str, proc_name: str) -> Dict[str, List[str]]`: Extrai dependências
+- `extract_dependencies(code: str) -> Tuple[Set[str], Set[str]]`: Extrai dependências
 - `analyze_complexity(code: str, proc_name: str) -> int`: Calcula complexidade
 
-**Exemplo:**
+**Exemplos:**
+
+**Modo Local (backward compatible):**
 ```python
 from analyzer import LLMAnalyzer
 
+# Forma antiga (ainda funciona)
 llm = LLMAnalyzer(model_name="gpt-oss-120b", device="cuda")
+
+# Forma nova
+llm = LLMAnalyzer(model_name="gpt-oss-120b", device="cuda", llm_mode="local")
+```
+
+**Modo API:**
+```python
+from analyzer import LLMAnalyzer
+from config import get_config
+
+config = get_config()
+llm = LLMAnalyzer(llm_mode="api", config=config)
 logic = llm.analyze_business_logic(code, "calc_saldo")
 ```
 
@@ -283,6 +296,70 @@ from config import get_config
 
 config = get_config()
 print(config.model_name)
+```
+
+---
+
+## LLM Classes
+
+### `GenFactoryClient`
+
+**Localização:** `app/llm/genfactory_client.py`
+
+**Descrição:** Cliente HTTP para API GenFactory (BNP Paribas).
+
+**Construtor:**
+```python
+GenFactoryClient(config: Dict[str, Any])
+```
+
+**Parâmetros:**
+- `config`: Dicionário com configuração:
+  - `base_url`: URL base da API
+  - `model`: Nome do modelo
+  - `authorization_token`: Token de autorização
+  - `timeout`: Timeout em milissegundos
+  - `verify_ssl`: Se deve verificar SSL
+  - `ca_bundle_path`: Lista de caminhos de certificados CA
+
+**Métodos:**
+- `chat(messages: List[Dict[str, str]], **kwargs) -> str`: Envia mensagem e retorna resposta
+
+**Exemplo:**
+```python
+from app.llm.genfactory_client import GenFactoryClient
+
+config = {
+    'base_url': 'https://api.example.com',
+    'model': 'meta-llama-3.3-70b-instruct',
+    'authorization_token': 'token',
+    'timeout': 20000,
+    'verify_ssl': True,
+    'ca_bundle_path': ['/path/to/cert.cer']
+}
+
+client = GenFactoryClient(config)
+response = client.chat([{'role': 'user', 'content': 'Hello'}])
+```
+
+### `GenFactoryLLM`
+
+**Localização:** `app/llm/langchain_wrapper.py`
+
+**Descrição:** Wrapper LangChain para GenFactoryClient, permite usar com LLMChain.
+
+**Construtor:**
+```python
+GenFactoryLLM(genfactory_client: GenFactoryClient, **kwargs)
+```
+
+**Exemplo:**
+```python
+from app.llm.genfactory_client import GenFactoryClient
+from app.llm.langchain_wrapper import GenFactoryLLM
+
+client = GenFactoryClient(config)
+llm = GenFactoryLLM(client)
 ```
 
 ---

@@ -278,6 +278,8 @@ CODEGRAPHAI_DB_SCHEMA=public
 
 ### Modelos LLM Suportados
 
+#### Modo Local (HuggingFace)
+
 ```python
 # Modelos Locais
 llm = LLMAnalyzer(model_name="gpt-oss-120b", device="cuda")
@@ -290,6 +292,46 @@ llm = LLMAnalyzer(model_name="/path/to/local/model", device="cuda")
 # CPU (mais lento)
 llm = LLMAnalyzer(model_name="gpt-oss-120b", device="cpu")
 ```
+
+#### Modo API (GenFactory - BNP Paribas)
+
+CodeGraphAI suporta LLM via API GenFactory, permitindo usar modelos remotos sem necessidade de GPU local.
+
+**Configuração:**
+
+1. Configure `environment.env` ou `.env`:
+```bash
+CODEGRAPHAI_LLM_MODE=api
+CODEGRAPHAI_LLM_PROVIDER=genfactory_llama70b  # ou genfactory_codestral, genfactory_gptoss120b
+
+# Provider: Llama 70B
+CODEGRAPHAI_GENFACTORY_LLAMA70B_BASE_URL=https://genfactory-ai.analytics.cib.echonet/genai/api/v2
+CODEGRAPHAI_GENFACTORY_LLAMA70B_MODEL=meta-llama-3.3-70b-instruct
+CODEGRAPHAI_GENFACTORY_LLAMA70B_AUTHORIZATION_TOKEN=seu_token_aqui
+CODEGRAPHAI_GENFACTORY_LLAMA70B_TIMEOUT=20000
+CODEGRAPHAI_GENFACTORY_LLAMA70B_VERIFY_SSL=true
+CODEGRAPHAI_GENFACTORY_LLAMA70B_CA_BUNDLE_PATH=caminho/cert1.cer;caminho/cert2.cer
+```
+
+2. Use no código:
+```python
+from analyzer import LLMAnalyzer
+from config import get_config
+
+config = get_config()
+llm = LLMAnalyzer(llm_mode='api', config=config)
+```
+
+**Providers Disponíveis:**
+- `genfactory_llama70b`: Meta Llama 3.3 70B Instruct
+- `genfactory_codestral`: Codestral Latest
+- `genfactory_gptoss120b`: GPT-OSS-120B
+
+**Vantagens do Modo API:**
+- Não requer GPU local
+- Não requer download de modelos grandes
+- Acesso a modelos atualizados
+- Escalabilidade automática
 
 ### Quantização para Economia de Memória
 

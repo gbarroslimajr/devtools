@@ -71,12 +71,16 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Configura modelo
-        model_name = model or config.model_name
-        device_name = device or config.device
-
-        click.echo(f"Carregando modelo {model_name}...")
-        llm = LLMAnalyzer(model_name=model_name, device=device_name)
+        # Configura modelo baseado no modo
+        if config.llm_mode == 'api':
+            click.echo(f"Inicializando LLM via API (provider: {config.llm_provider})...")
+            llm = LLMAnalyzer(llm_mode='api', config=config)
+        else:
+            # Modo local
+            model_name = model or config.model_name
+            device_name = device or config.device
+            click.echo(f"Carregando modelo local {model_name}...")
+            llm = LLMAnalyzer(model_name=model_name, device=device_name, config=config)
 
         analyzer = ProcedureAnalyzer(llm)
 
@@ -179,12 +183,16 @@ def analyze_db(ctx, db_type, user, password, dsn, host, port, database, schema, 
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Configura modelo
-        model_name = model or config.model_name
-        device_name = device or config.device
-
-        click.echo(f"Carregando modelo {model_name}...")
-        llm = LLMAnalyzer(model_name=model_name, device=device_name)
+        # Configura modelo baseado no modo
+        if config.llm_mode == 'api':
+            click.echo(f"Inicializando LLM via API (provider: {config.llm_provider})...")
+            llm = LLMAnalyzer(llm_mode='api', config=config)
+        else:
+            # Modo local
+            model_name = model or config.model_name
+            device_name = device or config.device
+            click.echo(f"Carregando modelo local {model_name}...")
+            llm = LLMAnalyzer(model_name=model_name, device=device_name, config=config)
 
         analyzer = ProcedureAnalyzer(llm)
 

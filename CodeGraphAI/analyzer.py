@@ -199,11 +199,54 @@ class ProcedureLoader:
 
 
 class LLMAnalyzer:
-    """Analisa procedures usando LLM local"""
+    """Analisa procedures usando LLM (local ou via API)"""
 
-    def __init__(self, model_name: str = "gpt-oss-120b", device: str = "cuda"):
+    def __init__(self, model_name: Optional[str] = None,
+                 device: Optional[str] = None,
+                 llm_mode: Optional[str] = None,
+                 config: Optional[Any] = None):
         """
-        Inicializa o modelo LLM local
+        Inicializa o modelo LLM (local ou via API)
+
+        Args:
+            model_name: Nome ou caminho do modelo HuggingFace (apenas modo local)
+            device: Dispositivo para execução "cuda" ou "cpu" (apenas modo local)
+            llm_mode: Modo de execução "local" ou "api" (se None, lê de config)
+            config: Instância de Config (opcional, será carregada se None)
+
+        Raises:
+            LLMAnalysisError: Se houver erro ao carregar o modelo
+        """
+        # Carregar config se não fornecido
+        if config is None:
+            from config import get_config
+            config = get_config()
+
+        self.config = config
+
+        # Determinar modo LLM
+        if llm_mode is None:
+            llm_mode = config.llm_mode
+
+        self.llm_mode = llm_mode
+
+        # Inicializar LLM baseado no modo
+        if self.llm_mode == 'api':
+            self._init_api_llm()
+        else:
+            # Modo local (backward compatibility)
+            # Usar parâmetros fornecidos ou valores do config
+            model = model_name or config.model_name
+            dev = device or config.device
+            self._init_local_llm(model, dev)
+
+        # Templates de prompts (comum para ambos os modos)
+        self._setup_prompts()
+        logger.info(f"Modelo LLM carregado com sucesso (modo: {self.llm_mode})")
+
+    def _init_local_llm(self, model_name: str, device: str) -> None:
+        """
+        Inicializa modelo LLM local (HuggingFace)
 
         Args:
             model_name: Nome ou caminho do modelo HuggingFace
@@ -212,7 +255,7 @@ class LLMAnalyzer:
         Raises:
             LLMAnalysisError: Se houver erro ao carregar o modelo
         """
-        logger.info(f"Carregando modelo {model_name}...")
+        logger.info(f"Carregando modelo local {model_name}...")
 
         try:
             # Configuração para modelo local grande
@@ -237,13 +280,58 @@ class LLMAnalyzer:
 
             self.llm = HuggingFacePipeline(pipeline=pipe)
 
-            # Templates de prompts
-            self._setup_prompts()
-            logger.info("Modelo LLM carregado com sucesso")
-
         except Exception as e:
-            logger.error(f"Erro ao carregar modelo LLM: {e}")
+            logger.error(f"Erro ao carregar modelo LLM local: {e}")
             raise LLMAnalysisError(f"Erro ao carregar modelo {model_name}: {e}")
+
+    def _init_api_llm(self) -> None:
+        """
+        Inicializa modelo LLM via API (GenFactory)
+
+        Raises:
+            LLMAnalysisError: Se houver erro ao inicializar API
+        """
+        logger.info(f"Inicializando LLM via API (provider: {self.config.llm_provider})...")
+
+        try:
+            # Selecionar configuração do provider
+            provider = self.config.llm_provider
+
+            if provider == 'genfactory_llama70b':
+                provider_config = self.config.genfactory_llama70b
+            elif provider == 'genfactory_codestral':
+                provider_config = self.config.genfactory_codestral
+            elif provider == 'genfactory_gptoss120b':
+                provider_config = self.config.genfactory_gptoss120b
+            else:
+                raise LLMAnalysisError(f"Provider não suportado: {provider}")
+
+            # Validar configuração
+            if not provider_config:
+                raise LLMAnalysisError(f"Configuração do provider {provider} não encontrada")
+
+            if not provider_config.get('authorization_token'):
+                raise LLMAnalysisError(f"Authorization token é obrigatório para {provider}")
+
+            if not provider_config.get('base_url'):
+                raise LLMAnalysisError(f"Base URL é obrigatória para {provider}")
+
+            # Criar cliente GenFactory
+            from app.llm.genfactory_client import GenFactoryClient
+            from app.llm.langchain_wrapper import GenFactoryLLM
+
+            client = GenFactoryClient(provider_config)
+
+            # Criar wrapper LangChain
+            self.llm = GenFactoryLLM(client)
+
+            logger.info(f"LLM via API inicializado: {provider_config.get('name', provider)}")
+
+        except LLMAnalysisError:
+            raise
+        except Exception as e:
+            logger.error(f"Erro ao inicializar LLM via API: {e}")
+            raise LLMAnalysisError(f"Erro ao inicializar LLM via API: {e}")
 
     def _setup_prompts(self) -> None:
         """Configura templates de prompts para análise"""

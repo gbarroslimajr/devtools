@@ -3,6 +3,7 @@ Testes para LLMAnalyzer
 """
 
 import pytest
+from unittest.mock import Mock, patch, MagicMock
 from analyzer import LLMAnalyzer
 from app.core.models import LLMAnalysisError
 
@@ -80,4 +81,88 @@ class TestLLMAnalyzerRegex:
         assert 1 <= simple_score <= 10
         assert 1 <= complex_score <= 10
         assert complex_score > simple_score  # Código complexo deve ter score maior
+
+
+class TestLLMAnalyzerInitialization:
+    """Testes para inicialização do LLMAnalyzer"""
+
+    @patch('analyzer.AutoTokenizer')
+    @patch('analyzer.AutoModelForCausalLM')
+    @patch('analyzer.pipeline')
+    @patch('analyzer.HuggingFacePipeline')
+    def test_init_local_mode(self, mock_hf_pipeline, mock_pipeline,
+                             mock_model, mock_tokenizer):
+        """Testa inicialização em modo local (backward compatibility)"""
+        from config import reload_config
+        import os
+
+        # Mock config para modo local
+        with patch.dict(os.environ, {'CODEGRAPHAI_LLM_MODE': 'local'}):
+            reload_config()
+
+            mock_tokenizer.return_value = Mock()
+            mock_model.return_value = Mock()
+            mock_pipeline.return_value = Mock()
+            mock_hf_pipeline.return_value = Mock()
+
+            analyzer = LLMAnalyzer(model_name="test-model", device="cpu")
+
+            assert analyzer.llm_mode == 'local'
+            assert analyzer.llm is not None
+            mock_tokenizer.from_pretrained.assert_called_once_with("test-model")
+
+    @patch('analyzer.GenFactoryClient')
+    @patch('analyzer.GenFactoryLLM')
+    def test_init_api_mode(self, mock_genfactory_llm, mock_genfactory_client):
+        """Testa inicialização em modo API"""
+        from config import reload_config
+        import os
+
+        # Mock config para modo API
+        with patch.dict(os.environ, {
+            'CODEGRAPHAI_LLM_MODE': 'api',
+            'CODEGRAPHAI_LLM_PROVIDER': 'genfactory_llama70b',
+            'CODEGRAPHAI_GENFACTORY_LLAMA70B_BASE_URL': 'https://api.test.com',
+            'CODEGRAPHAI_GENFACTORY_LLAMA70B_MODEL': 'test-model',
+            'CODEGRAPHAI_GENFACTORY_LLAMA70B_AUTHORIZATION_TOKEN': 'test-token',
+            'CODEGRAPHAI_GENFACTORY_LLAMA70B_TIMEOUT': '20000',
+            'CODEGRAPHAI_GENFACTORY_LLAMA70B_VERIFY_SSL': 'false'
+        }):
+            reload_config()
+
+            mock_client_instance = Mock()
+            mock_genfactory_client.return_value = mock_client_instance
+            mock_llm_instance = Mock()
+            mock_genfactory_llm.return_value = mock_llm_instance
+
+            analyzer = LLMAnalyzer(llm_mode='api')
+
+            assert analyzer.llm_mode == 'api'
+            assert analyzer.llm is not None
+            mock_genfactory_client.assert_called_once()
+            mock_genfactory_llm.assert_called_once_with(mock_client_instance)
+
+    def test_init_backward_compatibility(self):
+        """Testa backward compatibility - chamada sem parâmetros deve usar modo local"""
+        from config import reload_config
+        import os
+
+        with patch.dict(os.environ, {'CODEGRAPHAI_LLM_MODE': 'local'}):
+            reload_config()
+
+            with patch('analyzer.AutoTokenizer') as mock_tokenizer, \
+                 patch('analyzer.AutoModelForCausalLM') as mock_model, \
+                 patch('analyzer.pipeline') as mock_pipeline, \
+                 patch('analyzer.HuggingFacePipeline') as mock_hf_pipeline:
+
+                mock_tokenizer.from_pretrained.return_value = Mock()
+                mock_model.from_pretrained.return_value = Mock()
+                mock_pipeline.return_value = Mock()
+                mock_hf_pipeline.return_value = Mock()
+
+                # Chamada antiga (sem parâmetros) deve funcionar
+                analyzer = LLMAnalyzer()
+
+                assert analyzer.llm_mode == 'local'
+                assert analyzer.llm is not None
 
