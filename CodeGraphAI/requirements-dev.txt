@@ -1,0 +1,20 @@
+# CodeGraphAI - Dependências de Desenvolvimento
+# Instale com: pip install -r requirements-dev.txt
+
+# Inclui dependências principais
+-r requirements.txt
+
+# Testes
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+
+# Qualidade de Código
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+isort>=5.12.0
+
+# Type stubs para mypy
+types-oracledb>=1.0.0
+

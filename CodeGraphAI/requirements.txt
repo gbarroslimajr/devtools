@@ -1,0 +1,31 @@
+# CodeGraphAI - Dependências Principais
+# Python 3.8+
+
+# Banco de Dados (Opcional - apenas para análise direta do banco)
+oracledb>=1.4.0
+
+# LangChain - Framework para LLM
+langchain>=0.1.0
+langchain-community>=0.0.13
+
+# Transformers e PyTorch - Modelos de IA
+transformers>=4.35.0
+torch>=2.0.0
+accelerate>=0.25.0
+bitsandbytes>=0.41.0  # Para quantização 8-bit (opcional)
+
+# Análise de Grafos
+networkx>=3.0
+
+# Visualização
+matplotlib>=3.7.0
+
+# CLI
+click>=8.0.0
+
+# Progress tracking (será usado na Fase 5.4)
+tqdm>=4.65.0
+
+# Configuração via .env (será usado na Fase 2.2)
+python-dotenv>=1.0.0
+
