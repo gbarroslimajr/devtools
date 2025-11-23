@@ -35,6 +35,13 @@ venv\Scripts\activate  # Windows
 
 # Instale dependências
 pip install -r requirements.txt
+
+# Configure variáveis de ambiente
+# Copie o arquivo de exemplo e preencha com suas credenciais
+cp example.env .env
+# ou
+cp example.env environment.env
+# Edite .env ou environment.env com suas credenciais reais
 ```
 
 ### Uso Básico
@@ -229,6 +236,36 @@ Mostra fluxo completo de uma procedure:
 
 ## 🔧 Configuração Avançada
 
+### Configuração de Ambiente
+
+CodeGraphAI usa variáveis de ambiente para configuração. O projeto inclui um arquivo `example.env` como template.
+
+**Primeiros passos:**
+
+1. Copie o arquivo de exemplo:
+```bash
+cp example.env .env
+# ou
+cp example.env environment.env
+```
+
+2. Edite o arquivo copiado (`.env` ou `environment.env`) com suas credenciais reais:
+   - API keys para OpenAI, Anthropic ou GenFactory
+   - Credenciais de banco de dados
+   - Caminhos de certificados SSL (se necessário)
+
+3. **IMPORTANTE**: Os arquivos `.env` e `environment.env` estão no `.gitignore` e não serão commitados. Nunca commite credenciais reais!
+
+**Ordem de prioridade:**
+- O sistema carrega primeiro `.env` (se existir)
+- Se `.env` não existir, carrega `environment.env`
+- Se nenhum existir, usa valores padrão
+
+**Arquivos:**
+- `example.env`: Template versionado no Git (sem credenciais)
+- `.env`: Suas credenciais locais (não versionado)
+- `environment.env`: Suas credenciais locais (não versionado)
+
 ### Suporte a Múltiplos Bancos de Dados
 
 CodeGraphAI suporta múltiplos bancos de dados através de adaptadores:
@@ -299,8 +336,14 @@ CodeGraphAI suporta LLM via API GenFactory, permitindo usar modelos remotos sem 
 
 **Configuração:**
 
-1. Configure `environment.env` ou `.env`:
+1. Copie `example.env` para `.env` ou `environment.env` e configure:
 ```bash
+# Copie o template
+cp example.env .env
+# ou
+cp example.env environment.env
+
+# Edite o arquivo com suas credenciais
 CODEGRAPHAI_LLM_MODE=api
 CODEGRAPHAI_LLM_PROVIDER=genfactory_llama70b  # ou genfactory_codestral, genfactory_gptoss120b
 
@@ -339,8 +382,14 @@ CodeGraphAI suporta modelos OpenAI via API, incluindo os modelos mais recentes (
 
 **Configuração:**
 
-1. Configure `environment.env` ou `.env`:
+1. Copie `example.env` para `.env` ou `environment.env` e configure:
 ```bash
+# Copie o template
+cp example.env .env
+# ou
+cp example.env environment.env
+
+# Edite o arquivo com suas credenciais
 CODEGRAPHAI_LLM_MODE=api
 CODEGRAPHAI_LLM_PROVIDER=openai
 
@@ -386,8 +435,14 @@ CodeGraphAI suporta Anthropic Claude via API, incluindo o modelo mais recente Cl
 
 **Configuração:**
 
-1. Configure `environment.env` ou `.env`:
+1. Copie `example.env` para `.env` ou `environment.env` e configure:
 ```bash
+# Copie o template
+cp example.env .env
+# ou
+cp example.env environment.env
+
+# Edite o arquivo com suas credenciais
 CODEGRAPHAI_LLM_MODE=api
 CODEGRAPHAI_LLM_PROVIDER=anthropic
 
