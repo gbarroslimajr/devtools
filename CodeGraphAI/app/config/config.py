@@ -9,6 +9,7 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
+
     DOTENV_AVAILABLE = True
 except ImportError:
     DOTENV_AVAILABLE = False
@@ -31,6 +32,7 @@ class DefaultConfig:
     LLM_PROVIDER = 'genfactory_llama70b'
     LLM_API_MAX_OUTPUT_TOKENS = 4000
     LLM_REASONING_EFFORT = 'high'
+    LLM_USE_TOON = False  # Usar TOON para otimização de tokens (padrão: False)
 
     # OpenAI
     OPENAI_MODEL = 'gpt-5.1'
@@ -89,13 +91,17 @@ class Config:
         self.llm_max_new_tokens = self._getenv_int('CODEGRAPHAI_LLM_MAX_NEW_TOKENS', DefaultConfig.LLM_MAX_NEW_TOKENS)
         self.llm_temperature = self._getenv_float('CODEGRAPHAI_LLM_TEMPERATURE', DefaultConfig.LLM_TEMPERATURE)
         self.llm_top_p = self._getenv_float('CODEGRAPHAI_LLM_TOP_P', DefaultConfig.LLM_TOP_P)
-        self.llm_repetition_penalty = self._getenv_float('CODEGRAPHAI_LLM_REPETITION_PENALTY', DefaultConfig.LLM_REPETITION_PENALTY)
+        self.llm_repetition_penalty = self._getenv_float('CODEGRAPHAI_LLM_REPETITION_PENALTY',
+                                                         DefaultConfig.LLM_REPETITION_PENALTY)
 
         # Modo LLM (local ou api)
         self.llm_mode = os.getenv('CODEGRAPHAI_LLM_MODE', DefaultConfig.LLM_MODE).lower()
 
         # Provider API (se modo api)
         self.llm_provider = os.getenv('CODEGRAPHAI_LLM_PROVIDER', DefaultConfig.LLM_PROVIDER)
+
+        # Configuração TOON (otimização de tokens)
+        self.llm_use_toon = self._getenv_bool('CODEGRAPHAI_LLM_USE_TOON', DefaultConfig.LLM_USE_TOON)
 
         # Configurações GenFactory (apenas se modo api)
         if self.llm_mode == 'api':
@@ -145,8 +151,10 @@ class Config:
             )
 
             # Configurações globais API
-            self.llm_api_max_output_tokens = self._getenv_int('CODEGRAPHAI_LLM_API_MAX_OUTPUT_TOKENS', DefaultConfig.LLM_API_MAX_OUTPUT_TOKENS)
-            self.llm_reasoning_effort = os.getenv('CODEGRAPHAI_LLM_REASONING_EFFORT', DefaultConfig.LLM_REASONING_EFFORT)
+            self.llm_api_max_output_tokens = self._getenv_int('CODEGRAPHAI_LLM_API_MAX_OUTPUT_TOKENS',
+                                                              DefaultConfig.LLM_API_MAX_OUTPUT_TOKENS)
+            self.llm_reasoning_effort = os.getenv('CODEGRAPHAI_LLM_REASONING_EFFORT',
+                                                  DefaultConfig.LLM_REASONING_EFFORT)
         else:
             # Inicializar como None se modo local
             self.genfactory_llama70b = None
@@ -249,10 +257,12 @@ class Config:
         return {
             'name': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_NAME', default_name),
             'base_url': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_BASE_URL', ''),
-            'wire_api': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_WIRE_API', DefaultConfig.GENFACTORY_WIRE_API),
+            'wire_api': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_WIRE_API',
+                                  DefaultConfig.GENFACTORY_WIRE_API),
             'model': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_MODEL', default_model),
             'authorization_token': os.getenv(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_AUTHORIZATION_TOKEN', ''),
-            'timeout': self._getenv_int(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_TIMEOUT', DefaultConfig.GENFACTORY_TIMEOUT),
+            'timeout': self._getenv_int(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_TIMEOUT',
+                                        DefaultConfig.GENFACTORY_TIMEOUT),
             'verify_ssl': self._getenv_bool(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_VERIFY_SSL', True),
             'ca_bundle_path': self._parse_ca_bundle_path(f'CODEGRAPHAI_GENFACTORY_{provider_prefix}_CA_BUNDLE_PATH')
         }
@@ -452,4 +462,3 @@ def reload_config() -> Config:
     global _config
     _config = Config()
     return _config
-

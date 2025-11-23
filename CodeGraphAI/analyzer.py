@@ -31,6 +31,7 @@ from app.core.models import (
 )
 from app.io.factory import create_loader
 from app.io.file_loader import FileLoader
+from app.llm.toon_converter import format_dependencies_prompt_example, parse_llm_response, TOON_AVAILABLE
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -443,23 +444,21 @@ Resposta:"""
         )
 
         # Identificação de dependências
+        # Usa TOON se habilitado na configuração, senão usa JSON
+        use_toon = getattr(self.config, 'llm_use_toon', False) and TOON_AVAILABLE
+        example_format = format_dependencies_prompt_example(use_toon=use_toon)
+
         self.dependencies_prompt = PromptTemplate(
             input_variables=["code"],
-            template="""Analise o código SQL/PL-SQL abaixo e identifique:
+            template=f"""Analise o código SQL/PL-SQL abaixo e identifique:
 
 1. Todas as procedures/functions chamadas (formato: schema.procedure ou apenas procedure)
 2. Todas as tabelas acessadas (SELECT, INSERT, UPDATE, DELETE)
 
 Código:
-{code}
+{{code}}
 
-Retorne no formato JSON:
-{{
-    "procedures": ["proc1", "schema.proc2", ...],
-    "tables": ["table1", "schema.table2", ...]
-}}
-
-JSON:"""
+{example_format}"""
         )
 
         # Avaliação de complexidade
@@ -547,19 +546,21 @@ Resposta:"""
             else:
                 result = str(result)
 
-            # Parse JSON response com validação
-            json_match = re.search(r'\{.*\}', result, re.DOTALL)
-            if json_match:
-                try:
-                    deps = json.loads(json_match.group())
-                    # Validação: garantir que é um dict com as chaves esperadas
-                    if isinstance(deps, dict):
-                        if 'procedures' in deps and isinstance(deps['procedures'], list):
-                            procedures.update(deps['procedures'])
-                        if 'tables' in deps and isinstance(deps['tables'], list):
-                            tables.update(deps['tables'])
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Erro ao parsear JSON do LLM: {e}, usando apenas regex")
+            # Parse response (TOON ou JSON) com validação
+            use_toon = getattr(self.config, 'llm_use_toon', False) and TOON_AVAILABLE
+            deps = parse_llm_response(result, use_toon=use_toon)
+
+            if deps:
+                # Validação: garantir que é um dict com as chaves esperadas
+                if isinstance(deps, dict):
+                    if 'procedures' in deps and isinstance(deps['procedures'], list):
+                        procedures.update(deps['procedures'])
+                    if 'tables' in deps and isinstance(deps['tables'], list):
+                        tables.update(deps['tables'])
+                else:
+                    logger.warning(f"Resposta do LLM não é um dict válido: {type(deps)}, usando apenas regex")
+            else:
+                logger.warning(f"Não foi possível parsear resposta do LLM (TOON ou JSON), usando apenas regex")
         except Exception as e:
             logger.warning(f"LLM dependency extraction failed: {e}, using regex only")
 

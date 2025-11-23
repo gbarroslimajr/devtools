@@ -227,14 +227,14 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
               help='Tipo de análise: tables (apenas tabelas), procedures (apenas procedures), both (ambos)')
 @click.option('--db-type', type=click.Choice(['oracle', 'postgresql', 'mssql', 'mysql']),
               default=None, help='Tipo de banco de dados (padrão: postgresql)')
-@click.option('--user', required=True, help='Usuário do banco de dados')
-@click.option('--password', required=True, prompt=True, hide_input=True,
-              help='Senha do banco de dados')
-@click.option('--dsn', help='DSN (host:port/service para Oracle, host para outros)')
-@click.option('--host', help='Host do banco de dados (alternativa a --dsn)')
-@click.option('--port', type=int, help='Porta do banco de dados')
-@click.option('--database', help='Nome do banco de dados (obrigatório para PostgreSQL, SQL Server, MySQL)')
-@click.option('--schema', help='Schema específico (opcional)')
+@click.option('--user', default=None, help='Usuário do banco de dados (usa CODEGRAPHAI_DB_USER do env se não fornecido)')
+@click.option('--password', default=None, prompt=False, hide_input=True,
+              help='Senha do banco de dados (usa CODEGRAPHAI_DB_PASSWORD do env se não fornecido)')
+@click.option('--dsn', default=None, help='DSN (host:port/service para Oracle, host para outros)')
+@click.option('--host', default=None, help='Host do banco de dados (usa CODEGRAPHAI_DB_HOST do env se não fornecido)')
+@click.option('--port', type=int, default=None, help='Porta do banco de dados (usa CODEGRAPHAI_DB_PORT do env se não fornecido)')
+@click.option('--database', default=None, help='Nome do banco de dados (usa CODEGRAPHAI_DB_NAME do env se não fornecido)')
+@click.option('--schema', default=None, help='Schema específico (usa CODEGRAPHAI_DB_SCHEMA do env se não fornecido)')
 @click.option('--limit', type=int, help='Limite de entidades para análise')
 @click.option('--output-dir', '-o', type=click.Path(), help='Diretório de saída (padrão: ./output)')
 @click.option('--model', help='Nome do modelo LLM (sobrescreve config)')
@@ -251,18 +251,46 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
     logger = logging.getLogger(__name__)
 
     try:
+        # Usa valores do config se parâmetros não foram fornecidos
+        # Determina tipo de banco primeiro para usar a lógica correta
+        if db_type is None:
+            db_type = config.db_type.value if config.db_type else 'postgresql'
+
+        # Para PostgreSQL e outros bancos não-Oracle, prioriza valores genéricos (DB_*)
+        # Para Oracle, usa valores Oracle específicos
+        import os
+        if db_type == 'oracle':
+            user = user or config.oracle_user
+            password = password or config.oracle_password
+            host = host or config.oracle_dsn or config.db_host
+            schema = schema or config.oracle_schema or config.db_schema
+        else:
+            # Para PostgreSQL, MySQL, SQL Server, etc, usa valores genéricos primeiro
+            user = user or os.getenv('CODEGRAPHAI_DB_USER') or config.oracle_user
+            password = password or os.getenv('CODEGRAPHAI_DB_PASSWORD') or config.oracle_password
+            host = host or config.db_host or config.oracle_dsn
+            schema = schema or config.db_schema or config.oracle_schema
+
+        port = port or (int(config.db_port) if config.db_port else None)
+        database = database or config.db_database
+
+
         # Validação de parâmetros
         if not dsn and not host:
-            click.echo("❌ Erro: --dsn ou --host deve ser fornecido", err=True)
+            click.echo("❌ Erro: --dsn ou --host deve ser fornecido (ou defina CODEGRAPHAI_DB_HOST no environment.env)", err=True)
             sys.exit(1)
 
-        # Determina tipo de banco (default: postgresql)
-        if db_type is None:
-            db_type = 'postgresql'
+        if not user:
+            click.echo("❌ Erro: --user deve ser fornecido (ou defina CODEGRAPHAI_DB_USER no environment.env)", err=True)
+            sys.exit(1)
+
+        if not password:
+            click.echo("❌ Erro: --password deve ser fornecido (ou defina CODEGRAPHAI_DB_PASSWORD no environment.env)", err=True)
+            sys.exit(1)
 
         # Para bancos não-Oracle, database é obrigatório
         if db_type != 'oracle' and not database:
-            click.echo(f"❌ Erro: --database é obrigatório para {db_type}", err=True)
+            click.echo(f"❌ Erro: --database é obrigatório para {db_type} (ou defina CODEGRAPHAI_DB_NAME no environment.env)", err=True)
             sys.exit(1)
 
         # Resolve host/dsn

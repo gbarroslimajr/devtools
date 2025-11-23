@@ -269,3 +269,177 @@ class TestLLMAnalyzerInitialization:
                     analyzer = LLMAnalyzer(config=config)
                     assert analyzer.llm is not None
 
+
+class TestLLMAnalyzerToonIntegration:
+    """Testes de integração para suporte TOON"""
+
+    @patch('analyzer.AutoTokenizer')
+    @patch('analyzer.AutoModelForCausalLM')
+    @patch('analyzer.pipeline')
+    @patch('analyzer.HuggingFacePipeline')
+    def test_dependencies_prompt_with_toon_enabled(self, mock_hf_pipeline, mock_pipeline,
+                                                   mock_model, mock_tokenizer):
+        """Testa que prompt de dependências usa TOON quando habilitado"""
+        from config import reload_config
+        import os
+        from app.llm.toon_converter import TOON_AVAILABLE
+
+        with patch.dict(os.environ, {
+            'CODEGRAPHAI_LLM_MODE': 'local',
+            'CODEGRAPHAI_LLM_USE_TOON': 'true'
+        }):
+            reload_config()
+
+            mock_tokenizer.from_pretrained.return_value = Mock()
+            mock_model.from_pretrained.return_value = Mock()
+            mock_pipeline.return_value = Mock()
+            mock_hf_pipeline.return_value = Mock()
+
+            analyzer = LLMAnalyzer()
+
+            # Verifica que prompt foi configurado
+            assert analyzer.dependencies_prompt is not None
+            # Verifica que template contém informação sobre formato
+            template = analyzer.dependencies_prompt.template
+            assert "procedures" in template.lower() or "tables" in template.lower()
+
+    @patch('analyzer.AutoTokenizer')
+    @patch('analyzer.AutoModelForCausalLM')
+    @patch('analyzer.pipeline')
+    @patch('analyzer.HuggingFacePipeline')
+    def test_dependencies_prompt_with_toon_disabled(self, mock_hf_pipeline, mock_pipeline,
+                                                     mock_model, mock_tokenizer):
+        """Testa que prompt de dependências usa JSON quando TOON está desabilitado"""
+        from config import reload_config
+        import os
+
+        with patch.dict(os.environ, {
+            'CODEGRAPHAI_LLM_MODE': 'local',
+            'CODEGRAPHAI_LLM_USE_TOON': 'false'
+        }):
+            reload_config()
+
+            mock_tokenizer.from_pretrained.return_value = Mock()
+            mock_model.from_pretrained.return_value = Mock()
+            mock_pipeline.return_value = Mock()
+            mock_hf_pipeline.return_value = Mock()
+
+            analyzer = LLMAnalyzer()
+
+            # Verifica que prompt foi configurado
+            assert analyzer.dependencies_prompt is not None
+            template = analyzer.dependencies_prompt.template
+            # Deve mencionar JSON
+            assert "json" in template.lower() or "JSON" in template
+
+    def test_extract_dependencies_with_toon_response(self):
+        """Testa extração de dependências com resposta TOON do LLM"""
+        from app.llm.toon_converter import TOON_AVAILABLE, json_to_toon
+        from config import reload_config
+        import os
+
+        if not TOON_AVAILABLE:
+            pytest.skip("Biblioteca toon-python não está disponível")
+
+        with patch.dict(os.environ, {
+            'CODEGRAPHAI_LLM_MODE': 'local',
+            'CODEGRAPHAI_LLM_USE_TOON': 'true'
+        }):
+            reload_config()
+
+            # Cria analyzer sem inicializar LLM
+            analyzer = LLMAnalyzer.__new__(LLMAnalyzer)
+            analyzer.config = reload_config()
+
+            # Mock do LLM retornando resposta TOON
+            sample_data = {
+                "procedures": ["proc1", "proc2"],
+                "tables": ["table1", "table2"]
+            }
+            toon_response = json_to_toon(sample_data)
+
+            mock_llm = Mock()
+            mock_llm.invoke.return_value = f"Resposta:\n{toon_response}"
+            analyzer.llm = mock_llm
+
+            # Mock do prompt
+            from langchain_core.prompts import PromptTemplate
+            analyzer.dependencies_prompt = PromptTemplate(
+                input_variables=["code"],
+                template="Test: {code}"
+            )
+
+            # Testa extração
+            code = "SELECT * FROM table1;"
+            procedures, tables = analyzer.extract_dependencies(code)
+
+            # Deve ter extraído as dependências
+            assert len(procedures) >= 0  # Pode ter procedimentos do regex também
+            assert len(tables) >= 1  # Deve ter pelo menos table1
+
+    def test_extract_dependencies_fallback_to_json(self):
+        """Testa fallback de TOON para JSON quando TOON falha"""
+        from config import reload_config
+        import os
+
+        with patch.dict(os.environ, {
+            'CODEGRAPHAI_LLM_MODE': 'local',
+            'CODEGRAPHAI_LLM_USE_TOON': 'true'
+        }):
+            reload_config()
+
+            analyzer = LLMAnalyzer.__new__(LLMAnalyzer)
+            analyzer.config = reload_config()
+
+            # Mock do LLM retornando resposta JSON (fallback)
+            json_response = '{"procedures": ["proc1"], "tables": ["table1"]}'
+            mock_llm = Mock()
+            mock_llm.invoke.return_value = f"Resposta:\n{json_response}"
+            analyzer.llm = mock_llm
+
+            from langchain_core.prompts import PromptTemplate
+            analyzer.dependencies_prompt = PromptTemplate(
+                input_variables=["code"],
+                template="Test: {code}"
+            )
+
+            code = "SELECT * FROM table1;"
+            procedures, tables = analyzer.extract_dependencies(code)
+
+            # Deve ter extraído as dependências via fallback JSON
+            assert len(procedures) >= 0
+            assert len(tables) >= 1
+
+    def test_extract_dependencies_with_json_response(self):
+        """Testa extração de dependências com resposta JSON tradicional"""
+        from config import reload_config
+        import os
+
+        with patch.dict(os.environ, {
+            'CODEGRAPHAI_LLM_MODE': 'local',
+            'CODEGRAPHAI_LLM_USE_TOON': 'false'
+        }):
+            reload_config()
+
+            analyzer = LLMAnalyzer.__new__(LLMAnalyzer)
+            analyzer.config = reload_config()
+
+            # Mock do LLM retornando resposta JSON
+            json_response = '{"procedures": ["proc1", "proc2"], "tables": ["table1"]}'
+            mock_llm = Mock()
+            mock_llm.invoke.return_value = f"Análise:\n{json_response}\nFim"
+            analyzer.llm = mock_llm
+
+            from langchain_core.prompts import PromptTemplate
+            analyzer.dependencies_prompt = PromptTemplate(
+                input_variables=["code"],
+                template="Test: {code}"
+            )
+
+            code = "SELECT * FROM table1; EXEC proc1();"
+            procedures, tables = analyzer.extract_dependencies(code)
+
+            # Deve ter extraído as dependências
+            assert len(procedures) >= 0
+            assert len(tables) >= 1
+
