@@ -6,13 +6,12 @@ Extrai, analisa e mapeia relacionamentos entre stored procedures
 import re
 import json
 import logging
-from typing import List, Dict, Set, Tuple, Optional
+from typing import List, Dict, Set, Tuple, Optional, Any
 from dataclasses import asdict
 from collections import defaultdict
 from pathlib import Path
 
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
+from langchain_core.prompts import PromptTemplate
 from langchain_community.llms import HuggingFacePipeline
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import networkx as nx
@@ -120,7 +119,9 @@ class ProcedureLoader:
         password: str,
         dsn: str,
         schema: Optional[str] = None,
-        db_type: Optional[str] = None
+        db_type: Optional[str] = None,
+        database: Optional[str] = None,
+        port: Optional[int] = None
     ) -> Dict[str, str]:
         """
         Carrega procedures diretamente do banco de dados
@@ -160,27 +161,39 @@ class ProcedureLoader:
             if ':' in dsn:
                 parts = dsn.split('/')
                 host_port = parts[0]
-                database = parts[1] if len(parts) > 1 else None
+                parsed_database = parts[1] if len(parts) > 1 else None
 
                 if ':' in host_port:
-                    host, port_str = host_port.split(':')
+                    parsed_host, port_str = host_port.split(':')
                     try:
-                        port = int(port_str)
+                        parsed_port = int(port_str)
                     except ValueError:
-                        port = None
+                        parsed_port = None
                 else:
-                    host = host_port
-                    port = None
+                    parsed_host = host_port
+                    parsed_port = None
             else:
                 # DSN simples, assume que é host completo
-                host = dsn
-                port = None
-                database = None
+                parsed_host = dsn
+                parsed_port = None
+                parsed_database = None
+
+            # Usa valores fornecidos ou valores parseados do DSN
+            host = parsed_host
+            port = port or parsed_port
+            database = database or parsed_database
         else:
             # Para outros bancos, DSN é apenas host
+            # Mas pode receber database e port como parâmetros separados
             host = dsn
-            port = None
-            database = None
+            # Se port não foi fornecido, tenta parsear do dsn (formato host:port)
+            if port is None and ':' in dsn:
+                try:
+                    host, port_str = dsn.split(':')
+                    port = int(port_str)
+                except (ValueError, IndexError):
+                    pass
+            # database deve ser fornecido como parâmetro para bancos não-Oracle
 
         # Cria DatabaseConfig
         config = DatabaseConfig(
@@ -464,6 +477,25 @@ Código:
 Retorne apenas um número de 1 a 10:"""
         )
 
+        # Análise de propósito de tabela
+        self.table_purpose_prompt = PromptTemplate(
+            input_variables=["ddl", "table_name", "columns"],
+            template="""Analise a seguinte tabela de banco de dados e descreva seu propósito de negócio em português:
+
+Tabela: {table_name}
+Colunas: {columns}
+
+DDL:
+{ddl}
+
+Forneça uma descrição clara do propósito desta tabela no contexto do negócio, incluindo:
+1. Qual entidade ou conceito do negócio esta tabela representa
+2. Qual o papel principal desta tabela no sistema
+3. Principais relacionamentos sugeridos pelas foreign keys
+
+Resposta:"""
+        )
+
     def analyze_business_logic(self, code: str, proc_name: str) -> str:
         """
         Analisa lógica de negócio usando LLM
@@ -479,10 +511,13 @@ Retorne apenas um número de 1 a 10:"""
             LLMAnalysisError: Se houver erro na análise
         """
         try:
-            chain = LLMChain(llm=self.llm, prompt=self.business_logic_prompt)
             truncated_code = code[:AnalysisConfig.MAX_CODE_LENGTH_BUSINESS_LOGIC]
-            result = chain.run(code=truncated_code, proc_name=proc_name)
-            return result.strip()
+            chain = self.business_logic_prompt | self.llm
+            result = chain.invoke({"code": truncated_code, "proc_name": proc_name})
+            # Se result for um objeto com content, extrair o content
+            if hasattr(result, 'content'):
+                return result.content.strip()
+            return str(result).strip()
         except Exception as e:
             logger.error(f"Erro ao analisar lógica de negócio de {proc_name}: {e}")
             raise LLMAnalysisError(f"Erro ao analisar lógica de negócio: {e}")
@@ -503,9 +538,14 @@ Retorne apenas um número de 1 a 10:"""
 
         # Depois complementa com LLM para casos mais complexos
         try:
-            chain = LLMChain(llm=self.llm, prompt=self.dependencies_prompt)
             truncated_code = code[:AnalysisConfig.MAX_CODE_LENGTH_DEPENDENCIES]
-            result = chain.run(code=truncated_code)
+            chain = self.dependencies_prompt | self.llm
+            result = chain.invoke({"code": truncated_code})
+            # Se result for um objeto com content, extrair o content
+            if hasattr(result, 'content'):
+                result = result.content
+            else:
+                result = str(result)
 
             # Parse JSON response com validação
             json_match = re.search(r'\{.*\}', result, re.DOTALL)
@@ -592,9 +632,14 @@ Retorne apenas um número de 1 a 10:"""
             Score de complexidade entre 1 e 10
         """
         try:
-            chain = LLMChain(llm=self.llm, prompt=self.complexity_prompt)
             truncated_code = code[:AnalysisConfig.MAX_CODE_LENGTH_COMPLEXITY]
-            result = chain.run(code=truncated_code)
+            chain = self.complexity_prompt | self.llm
+            result = chain.invoke({"code": truncated_code})
+            # Se result for um objeto com content, extrair o content
+            if hasattr(result, 'content'):
+                result = result.content
+            else:
+                result = str(result)
 
             # Extrai número da resposta com validação
             score_match = re.search(r'\b([1-9]|10)\b', result)
@@ -633,6 +678,41 @@ Retorne apenas um número de 1 a 10:"""
         score += len(re.findall(r'(?i)\bEXCEPTION\b', code)) * AnalysisConfig.COMPLEXITY_EXCEPTION_WEIGHT
 
         return min(int(score), AnalysisConfig.COMPLEXITY_MAX_SCORE)
+
+    def analyze_table_purpose(self, ddl: str, table_name: str, columns: List[str]) -> str:
+        """
+        Analisa propósito de negócio de uma tabela usando LLM
+
+        Args:
+            ddl: DDL completo da tabela
+            table_name: Nome da tabela
+            columns: Lista de nomes de colunas
+
+        Returns:
+            Descrição do propósito de negócio
+
+        Raises:
+            LLMAnalysisError: Se houver erro na análise
+        """
+        try:
+            # Limita tamanho do DDL para não exceder limites do LLM
+            max_ddl_length = 2000
+            truncated_ddl = ddl[:max_ddl_length] if len(ddl) > max_ddl_length else ddl
+            columns_str = ', '.join(columns[:20])  # Limita a 20 colunas para o prompt
+
+            chain = self.table_purpose_prompt | self.llm
+            result = chain.invoke({
+                "ddl": truncated_ddl,
+                "table_name": table_name,
+                "columns": columns_str
+            })
+            # Se result for um objeto com content, extrair o content
+            if hasattr(result, 'content'):
+                return result.content.strip()
+            return str(result).strip()
+        except Exception as e:
+            logger.error(f"Erro ao analisar propósito da tabela {table_name}: {e}")
+            raise LLMAnalysisError(f"Erro ao analisar propósito da tabela: {e}")
 
 
 class ProcedureAnalyzer:
@@ -697,7 +777,9 @@ class ProcedureAnalyzer:
         schema: Optional[str] = None,
         limit: Optional[int] = None,
         show_progress: bool = True,
-        db_type: Optional[str] = None
+        db_type: Optional[str] = None,
+        database: Optional[str] = None,
+        port: Optional[int] = None
     ) -> None:
         """
         Analisa procedures diretamente do banco de dados
@@ -716,7 +798,7 @@ class ProcedureAnalyzer:
             ProcedureLoadError: Se houver erro ao carregar do banco
         """
         # Carrega procedures do banco usando novo método
-        proc_db = ProcedureLoader.from_database(user, password, dsn, schema, db_type)
+        proc_db = ProcedureLoader.from_database(user, password, dsn, schema, db_type, database, port)
 
         if limit and limit > 0:
             proc_db = dict(list(proc_db.items())[:limit])

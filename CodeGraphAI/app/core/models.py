@@ -18,6 +18,11 @@ class ProcedureLoadError(CodeGraphAIError):
     pass
 
 
+class TableLoadError(CodeGraphAIError):
+    """Erro ao carregar tabelas"""
+    pass
+
+
 class LLMAnalysisError(CodeGraphAIError):
     """Erro na análise com LLM"""
     pass
@@ -121,4 +126,60 @@ class ProcedureInfo:
     business_logic: str
     complexity_score: int
     dependencies_level: int
+
+
+@dataclass
+class ColumnInfo:
+    """Informações sobre uma coluna de tabela"""
+    name: str
+    data_type: str
+    nullable: bool
+    default_value: Optional[str] = None
+    is_primary_key: bool = False
+    is_foreign_key: bool = False
+    foreign_key_table: Optional[str] = None
+    foreign_key_column: Optional[str] = None
+    constraints: List[str] = field(default_factory=list)
+    comments: Optional[str] = None
+
+
+@dataclass
+class IndexInfo:
+    """Informações sobre um índice"""
+    name: str
+    table_name: str
+    columns: List[str]
+    is_unique: bool
+    is_primary: bool
+    index_type: Optional[str] = None  # B-tree, Hash, GIN, etc.
+    where_clause: Optional[str] = None  # Para índices parciais
+
+
+@dataclass
+class ForeignKeyInfo:
+    """Informações sobre uma foreign key"""
+    name: str
+    table_name: str
+    columns: List[str]
+    referenced_table: str
+    referenced_columns: List[str]
+    on_delete: Optional[str] = None  # CASCADE, SET NULL, etc.
+    on_update: Optional[str] = None
+
+
+@dataclass
+class TableInfo:
+    """Informações sobre uma tabela"""
+    name: str
+    schema: str
+    ddl: str  # DDL completo
+    columns: List[ColumnInfo]
+    indexes: List[IndexInfo]
+    foreign_keys: List[ForeignKeyInfo]
+    primary_key_columns: List[str]
+    row_count: Optional[int] = None
+    table_size: Optional[str] = None  # Tamanho em bytes/human readable
+    business_purpose: str = ""  # Gerado por LLM
+    complexity_score: int = 0  # Baseado em colunas, FKs, índices
+    relationships: Dict[str, List[str]] = field(default_factory=dict)  # {table: [relationship_type]}
 

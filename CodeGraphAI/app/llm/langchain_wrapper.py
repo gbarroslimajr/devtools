@@ -4,8 +4,8 @@ Permite usar GenFactoryClient com LLMChain do LangChain
 """
 
 from typing import Any, List, Optional
-from langchain.llms.base import BaseLLM
-from langchain.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.language_models.llms import BaseLLM
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 
 from app.llm.genfactory_client import GenFactoryClient
 
