@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Dict
 import logging
 
-from app.core.models import DatabaseConfig, DatabaseType
+from app.core.models import DatabaseConfig, DatabaseType, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,26 @@ class ProcedureLoaderBase(ABC):
         """
         pass
 
+    @abstractmethod
+    def test_connection_only(self, config: DatabaseConfig) -> bool:
+        """
+        Testa apenas a conexão com o banco usando query simples
+
+        Args:
+            config: Configuração de conexão
+
+        Returns:
+            True se conexão bem-sucedida, False caso contrário
+
+        Raises:
+            ProcedureLoadError: Se houver erro de conexão
+        """
+        pass
+
     def test_connection(self, config: DatabaseConfig) -> bool:
         """
         Testa a conexão com o banco de dados (opcional)
+        Mantido para backward compatibility - usa test_connection_only() se disponível
 
         Args:
             config: Configuração de conexão
@@ -55,13 +72,17 @@ class ProcedureLoaderBase(ABC):
         Raises:
             ProcedureLoadError: Se houver erro de conexão
         """
-        # Implementação padrão: tenta carregar procedures e verifica se não está vazio
+        # Tenta usar método otimizado primeiro
         try:
-            procedures = self.load_procedures(config)
-            return len(procedures) >= 0  # Aceita mesmo se não houver procedures
-        except Exception as e:
-            logger.error(f"Erro ao testar conexão: {e}")
-            return False
+            return self.test_connection_only(config)
+        except NotImplementedError:
+            # Fallback para implementação antiga se método não implementado
+            try:
+                procedures = self.load_procedures(config)
+                return len(procedures) >= 0  # Aceita mesmo se não houver procedures
+            except Exception as e:
+                logger.error(f"Erro ao testar conexão: {e}")
+                return False
 
     def validate_config(self, config: DatabaseConfig) -> None:
         """

@@ -505,6 +505,57 @@ python main.py analyze-files --dry-run --directory ./procedures
 - `0`: Validação bem-sucedida (sem erros)
 - `1`: Validação falhou (erros encontrados)
 
+### Teste de Conexão
+
+O comando `test-connection` testa apenas a conectividade com banco de dados usando queries simples (SELECT 1), sem carregar procedures ou tabelas. Útil para:
+- Verificar se credenciais estão corretas
+- Testar conectividade de rede
+- Validar configuração antes de executar análises
+- Troubleshooting de conexão
+
+**Uso:**
+```bash
+# Testar conexão PostgreSQL
+python main.py test-connection --db-type postgresql \
+    --user postgres --password changeme \
+    --host localhost --port 5432 --database postgres
+
+# Testar conexão Oracle
+python main.py test-connection --db-type oracle \
+    --user user --password pass --dsn localhost:1521/ORCL
+
+# Testar conexão SQL Server
+python main.py test-connection --db-type mssql \
+    --user user --password pass \
+    --host localhost --port 1433 --database mydb
+
+# Testar conexão MySQL
+python main.py test-connection --db-type mysql \
+    --user user --password pass \
+    --host localhost --port 3306 --database mydb
+```
+
+**Formato de saída:**
+```
+Testando conexão com POSTGRESQL (localhost:5432)...
+✅ Conexão bem-sucedida!
+   Tipo: POSTGRESQL
+   Host: localhost:5432
+   Database: postgres
+   Usuário: postgres
+```
+
+**Diferenças entre comandos:**
+- `test-connection`: Testa apenas conectividade (rápido, query simples)
+- `analyze --dry-run`: Valida configuração sem conectar (muito rápido, sem I/O)
+- `analyze`: Executa análise completa (lento, carrega dados e chama LLM)
+
+**Troubleshooting:**
+- Erro de autenticação: Verifique usuário e senha
+- Erro de rede: Verifique host e porta
+- Database não encontrado: Verifique nome do banco
+- Driver não instalado: Instale o driver apropriado (psycopg2, oracledb, etc.)
+
 **Variáveis de ambiente:**
 ```bash
 CODEGRAPHAI_DB_TYPE=postgresql

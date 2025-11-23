@@ -80,9 +80,43 @@ class PostgreSQLTableLoader(TableLoaderBase):
             if config.schema:
                 query += " AND table_schema = %s"
                 params.append(config.schema)
+                logger.info(f"Buscando tabelas no schema: {config.schema}")
+            else:
+                logger.info("Buscando tabelas em todos os schemas (exceto pg_catalog e information_schema)")
 
             cursor.execute(query, params)
             tables_list = cursor.fetchall()
+            logger.info(f"Encontradas {len(tables_list)} tabelas na query inicial")
+
+            # Se nenhuma tabela encontrada, tenta listar schemas disponíveis para debug
+            if not tables_list:
+                try:
+                    debug_query = """
+                        SELECT DISTINCT table_schema
+                        FROM information_schema.tables
+                        WHERE table_type = 'BASE TABLE'
+                        AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                        ORDER BY table_schema
+                    """
+                    cursor.execute(debug_query)
+                    available_schemas = [row['table_schema'] for row in cursor.fetchall()]
+                    if available_schemas:
+                        logger.warning(f"Schemas disponíveis com tabelas: {', '.join(available_schemas)}")
+                    else:
+                        # Tenta listar todos os schemas existentes
+                        cursor.execute("""
+                            SELECT schema_name
+                            FROM information_schema.schemata
+                            WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                            ORDER BY schema_name
+                        """)
+                        all_schemas = [row['schema_name'] for row in cursor.fetchall()]
+                        if all_schemas:
+                            logger.warning(f"Schemas existentes no banco (sem tabelas): {', '.join(all_schemas)}")
+                        else:
+                            logger.warning("Nenhum schema encontrado no banco de dados")
+                except Exception as e:
+                    logger.debug(f"Erro ao buscar schemas para debug: {e}")
 
             tables = {}
             for row in tables_list:
@@ -98,12 +132,68 @@ class PostgreSQLTableLoader(TableLoaderBase):
                     logger.info(f"Carregado: {full_name}")
                 except Exception as e:
                     logger.error(f"Erro ao carregar {full_name}: {e}")
+                    import traceback
+                    logger.debug(f"Traceback completo: {traceback.format_exc()}")
                     continue
 
             connection.close()
 
             if not tables:
-                raise TableLoadError("Nenhuma tabela encontrada no banco de dados")
+                schema_msg = f" no schema '{config.schema}'" if config.schema else ""
+                error_msg = f"Nenhuma tabela encontrada no banco de dados{schema_msg}"
+
+                # Lista schemas disponíveis na mensagem de erro
+                try:
+                    # Reutiliza conexão existente se ainda estiver aberta
+                    if connection.closed == 0:
+                        debug_cursor = connection.cursor(cursor_factory=RealDictCursor)
+                    else:
+                        connection = psycopg2.connect(
+                            host=config.host,
+                            port=port,
+                            database=config.database,
+                            user=config.user,
+                            password=config.password
+                        )
+                        debug_cursor = connection.cursor(cursor_factory=RealDictCursor)
+
+                    # Lista todos os schemas com tabelas
+                    debug_cursor.execute("""
+                        SELECT DISTINCT table_schema
+                        FROM information_schema.tables
+                        WHERE table_type = 'BASE TABLE'
+                        AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                        ORDER BY table_schema
+                    """)
+                    schemas_with_tables = [row['table_schema'] for row in debug_cursor.fetchall()]
+
+                    # Lista todos os schemas existentes
+                    debug_cursor.execute("""
+                        SELECT schema_name
+                        FROM information_schema.schemata
+                        WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                        ORDER BY schema_name
+                    """)
+                    all_schemas = [row['schema_name'] for row in debug_cursor.fetchall()]
+
+                    if connection.closed == 0 and not connection.closed:
+                        debug_cursor.close()
+                    else:
+                        connection.close()
+
+                    if schemas_with_tables:
+                        error_msg += f"\nSchemas com tabelas disponíveis: {', '.join(schemas_with_tables)}"
+                    elif all_schemas:
+                        error_msg += f"\nSchemas existentes no banco (sem tabelas): {', '.join(all_schemas)}"
+                    else:
+                        error_msg += "\nNenhum schema encontrado no banco de dados"
+
+                    if config.schema and config.schema not in all_schemas:
+                        error_msg += f"\n⚠️  O schema '{config.schema}' não existe no banco de dados."
+                except Exception as e:
+                    logger.debug(f"Erro ao buscar schemas para mensagem: {e}")
+
+                raise TableLoadError(error_msg)
 
             logger.info(f"Total de {len(tables)} tabelas carregadas do PostgreSQL")
             return tables
@@ -121,13 +211,25 @@ class PostgreSQLTableLoader(TableLoaderBase):
         """Carrega detalhes completos de uma tabela"""
 
         # 1. Carrega colunas
-        columns = self._load_columns(cursor, schema, table_name)
+        try:
+            columns = self._load_columns(cursor, schema, table_name)
+        except Exception as e:
+            logger.error(f"Erro ao carregar colunas de {schema}.{table_name}: {e}")
+            raise
 
         # 3. Carrega índices
-        indexes = self._load_indexes(cursor, schema, table_name)
+        try:
+            indexes = self._load_indexes(cursor, schema, table_name)
+        except Exception as e:
+            logger.error(f"Erro ao carregar índices de {schema}.{table_name}: {e}")
+            raise
 
         # 4. Carrega foreign keys
-        foreign_keys = self._load_foreign_keys(cursor, schema, table_name)
+        try:
+            foreign_keys = self._load_foreign_keys(cursor, schema, table_name)
+        except Exception as e:
+            logger.error(f"Erro ao carregar foreign keys de {schema}.{table_name}: {e}")
+            raise
 
         # 5. Identifica primary key
         primary_key_columns = [
@@ -230,41 +332,46 @@ class PostgreSQLTableLoader(TableLoaderBase):
 
     def _load_indexes(self, cursor, schema: str, table_name: str) -> List[IndexInfo]:
         """Carrega informações dos índices"""
+        # Query simplificada para evitar problemas com JOINs complexos
+        # Primeiro, busca os índices
         query = """
             SELECT
                 i.indexname as index_name,
-                i.indexdef,
-                CASE WHEN i.indexdef LIKE '%UNIQUE%' THEN true ELSE false END as is_unique,
-                CASE WHEN pk.constraint_name IS NOT NULL THEN true ELSE false END as is_primary,
-                am.amname as index_type
+                i.indexdef
             FROM pg_indexes i
-            JOIN pg_class pgc ON pgc.relname = i.tablename
-            JOIN pg_namespace pgn ON pgn.oid = pgc.relnamespace AND pgn.nspname = i.schemaname
-            JOIN pg_index pgi ON pgi.indexrelid = (
-                SELECT oid FROM pg_class WHERE relname = i.indexname
-            )
-            JOIN pg_am am ON am.oid = (
-                SELECT relam FROM pg_class WHERE relname = i.indexname
-            )
-            LEFT JOIN (
-                SELECT constraint_name
-                FROM information_schema.table_constraints
-                WHERE constraint_type = 'PRIMARY KEY'
-                    AND table_schema = %s
-                    AND table_name = %s
-            ) pk ON i.indexname LIKE '%' || pk.constraint_name || '%'
             WHERE i.schemaname = %s
                 AND i.tablename = %s
         """
 
-        cursor.execute(query, (schema, table_name, schema, table_name))
+        cursor.execute(query, (schema, table_name))
         rows = cursor.fetchall()
+
+        # Busca primary keys separadamente
+        pk_query = """
+            SELECT constraint_name
+            FROM information_schema.table_constraints
+            WHERE constraint_type = 'PRIMARY KEY'
+                AND table_schema = %s
+                AND table_name = %s
+        """
+        cursor.execute(pk_query, (schema, table_name))
+        pk_rows = cursor.fetchall()
+        pk_constraint_names = {row['constraint_name'] for row in pk_rows} if pk_rows else set()
 
         indexes = []
         for row in rows:
             # Extrai colunas do indexdef
             # Exemplo: "CREATE INDEX idx_name ON table (col1, col2)"
             indexdef = row['indexdef']
+            index_name = row['index_name']
+
+            # Verifica se é unique
+            is_unique = 'UNIQUE' in indexdef.upper()
+
+            # Verifica se é primary key
+            is_primary = any(pk_name in index_name for pk_name in pk_constraint_names)
+
+            # Extrai colunas
             columns_str = ""
             if '(' in indexdef:
                 try:
@@ -274,12 +381,12 @@ class PostgreSQLTableLoader(TableLoaderBase):
             columns = [col.strip().strip('"') for col in columns_str.split(',') if col.strip()] if columns_str else []
 
             indexes.append(IndexInfo(
-                name=row['index_name'],
+                name=index_name,
                 table_name=table_name,
                 columns=columns,
-                is_unique=row['is_unique'],
-                is_primary=row['is_primary'],
-                index_type=row.get('index_type')
+                is_unique=is_unique,
+                is_primary=is_primary,
+                index_type='btree'  # Default para PostgreSQL
             ))
 
         return indexes
@@ -374,12 +481,45 @@ class PostgreSQLTableLoader(TableLoaderBase):
             logger.warning(f"Erro ao gerar DDL: {e}")
             return f"-- DDL para {schema}.{table_name}\n-- (Erro ao reconstruir: {e})"
 
+    def _generate_ddl_from_info(self, columns: List[ColumnInfo], foreign_keys: List[ForeignKeyInfo], schema: str, table_name: str) -> str:
+        """Gera DDL a partir das informações coletadas"""
+        ddl_lines = [f"CREATE TABLE {schema}.{table_name} ("]
+
+        col_defs = []
+        for col in columns:
+            col_def = f"    {col.name} {col.data_type}"
+            if not col.nullable:
+                col_def += " NOT NULL"
+            if col.default_value:
+                col_def += f" DEFAULT {col.default_value}"
+            col_defs.append(col_def)
+
+        ddl_lines.append(",\n".join(col_defs))
+
+        # Adiciona primary key
+        pk_cols = [col.name for col in columns if col.is_primary_key]
+        if pk_cols:
+            ddl_lines.append(f",\n    PRIMARY KEY ({', '.join(pk_cols)})")
+
+        # Adiciona foreign keys
+        for fk in foreign_keys:
+            fk_def = f"    CONSTRAINT {fk.name} FOREIGN KEY ({', '.join(fk.columns)})"
+            fk_def += f" REFERENCES {fk.referenced_table} ({', '.join(fk.referenced_columns)})"
+            if fk.on_delete:
+                fk_def += f" ON DELETE {fk.on_delete}"
+            if fk.on_update:
+                fk_def += f" ON UPDATE {fk.on_update}"
+            ddl_lines.append(f",\n{fk_def}")
+
+        ddl_lines.append("\n);")
+        return "\n".join(ddl_lines)
+
     def _get_table_stats(self, cursor, schema: str, table_name: str) -> Tuple[Optional[int], Optional[str]]:
         """Obtém estatísticas da tabela (row count, size)"""
         query = """
             SELECT
                 n_live_tup as row_count,
-                pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+                pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as size
             FROM pg_stat_user_tables
             WHERE schemaname = %s AND relname = %s
         """
@@ -387,7 +527,10 @@ class PostgreSQLTableLoader(TableLoaderBase):
             cursor.execute(query, (schema, table_name))
             row = cursor.fetchone()
             if row:
-                return row.get('row_count'), row.get('size')
+                # RealDictCursor retorna dicionário
+                row_count = row.get('row_count') if isinstance(row, dict) else row[0] if row else None
+                size = row.get('size') if isinstance(row, dict) else row[1] if row and len(row) > 1 else None
+                return row_count, size
         except Exception as e:
             logger.debug(f"Erro ao obter estatísticas da tabela {schema}.{table_name}: {e}")
 

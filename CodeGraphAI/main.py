@@ -12,8 +12,9 @@ from tqdm import tqdm
 
 from analyzer import LLMAnalyzer, ProcedureAnalyzer
 from table_analyzer import TableAnalyzer
-from app.core.models import CodeGraphAIError
+from app.core.models import CodeGraphAIError, DatabaseConfig, DatabaseType
 from app.core.dry_mode import DryRunValidator, DryRunResult
+from app.io.factory import create_loader
 from config import get_config
 
 
@@ -473,6 +474,101 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
             click.echo(f"  - Tabelas: {len(table_analyzer.tables)}")
 
         click.echo("\n✅ Análise concluída!")
+
+    except CodeGraphAIError as e:
+        click.echo(f"❌ Erro: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        logger.exception("Erro inesperado")
+        click.echo(f"❌ Erro inesperado: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--db-type', type=click.Choice(['oracle', 'postgresql', 'mssql', 'mysql']),
+              default=None, help='Tipo de banco de dados (padrão: postgresql)')
+@click.option('--user', required=True, help='Usuário do banco de dados')
+@click.option('--password', required=True, prompt=True, hide_input=True,
+              help='Senha do banco de dados')
+@click.option('--dsn', help='DSN (host:port/service para Oracle, host para outros)')
+@click.option('--host', help='Host do banco de dados (alternativa a --dsn)')
+@click.option('--port', type=int, help='Porta do banco de dados')
+@click.option('--database', help='Nome do banco de dados (obrigatório para PostgreSQL, SQL Server, MySQL)')
+@click.option('--schema', help='Schema específico (opcional, não usado no teste)')
+@click.pass_context
+def test_connection(ctx, db_type, user, password, dsn, host, port, database, schema):
+    """Testa conexão com banco de dados sem carregar dados"""
+    config = ctx.obj['config']
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Validação de parâmetros
+        if not dsn and not host:
+            click.echo("❌ Erro: --dsn ou --host deve ser fornecido", err=True)
+            sys.exit(1)
+
+        # Determina tipo de banco (default: postgresql)
+        if db_type is None:
+            db_type = 'postgresql'
+
+        # Para bancos não-Oracle, database é obrigatório
+        if db_type != 'oracle' and not database:
+            click.echo(f"❌ Erro: --database é obrigatório para {db_type}", err=True)
+            sys.exit(1)
+
+        # Resolve host/dsn
+        if dsn:
+            connection_host = dsn
+        else:
+            connection_host = host
+
+        # Cria DatabaseConfig
+        try:
+            db_type_enum = DatabaseType(db_type.lower())
+        except ValueError:
+            click.echo(f"❌ Erro: Tipo de banco inválido: {db_type}", err=True)
+            sys.exit(1)
+
+        # Para Oracle, constrói DSN se necessário
+        if db_type_enum == DatabaseType.ORACLE:
+            # Se database fornecido, constrói DSN
+            if database and port:
+                connection_host = f"{connection_host}:{port}/{database}"
+            elif database:
+                connection_host = f"{connection_host}/{database}"
+
+        db_config = DatabaseConfig(
+            db_type=db_type_enum,
+            user=user,
+            password=password,
+            host=connection_host,
+            port=port,
+            database=database,
+            schema=schema
+        )
+
+        # Cria loader e testa conexão
+        click.echo(f"Testando conexão com {db_type.upper()} ({connection_host})...")
+        loader = create_loader(db_type_enum)
+
+        try:
+            success = loader.test_connection_only(db_config)
+            if success:
+                click.echo("✅ Conexão bem-sucedida!")
+                click.echo(f"   Tipo: {db_type.upper()}")
+                click.echo(f"   Host: {connection_host}")
+                if database:
+                    click.echo(f"   Database: {database}")
+                if schema:
+                    click.echo(f"   Schema: {schema}")
+                sys.exit(0)
+            else:
+                click.echo("❌ Falha na conexão (retornou False)", err=True)
+                sys.exit(1)
+        except CodeGraphAIError as e:
+            click.echo(f"❌ Erro ao conectar: {e}", err=True)
+            logger.exception("Erro de conexão")
+            sys.exit(1)
 
     except CodeGraphAIError as e:
         click.echo(f"❌ Erro: {e}", err=True)
