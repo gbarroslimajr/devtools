@@ -21,9 +21,14 @@ class Config:
 
     def __init__(self):
         """Inicializa configurações carregando variáveis de ambiente"""
-        # Carrega .env se disponível
+        # Carrega .env ou environment.env se disponível
         if DOTENV_AVAILABLE:
-            env_path = Path(__file__).parent.parent.parent / '.env'
+            base_path = Path(__file__).parent.parent.parent
+            # Tenta carregar .env primeiro, depois environment.env
+            env_path = base_path / '.env'
+            if not env_path.exists():
+                env_path = base_path / 'environment.env'
+
             if env_path.exists():
                 load_dotenv(env_path)
                 self._env_loaded = True

@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables com credenciais
+# IMPORTANTE: environment.env é versionado como template
+# Crie uma cópia .env com suas credenciais reais (não será commitada)
+.env
+*.env.local
+
+# Logs
+*.log
+logs/
+
+# Output gerado
+output/
+*.json
+*.png
+*.md
+!README.md
+!docs/**/*.md
+!.cursor/documentation/**/*.md
+
+# Testes
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Modelos LLM (podem ser grandes)
+models/
+*.bin
+*.safetensors
+

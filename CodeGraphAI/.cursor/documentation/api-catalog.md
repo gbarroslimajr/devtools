@@ -1,0 +1,330 @@
+# CodeGraphAI - API Catalog
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Core Classes](#core-classes)
+- [I/O Classes](#io-classes)
+- [Analysis Classes](#analysis-classes)
+- [Configuration](#configuration)
+- [Exceptions](#exceptions)
+- [Related Documentation](#related-documentation)
+
+---
+
+## Overview
+
+Este documento fornece uma referência completa das APIs públicas do CodeGraphAI. Todas as classes e métodos documentados aqui são parte da API pública e podem ser usados por código externo.
+
+---
+
+## Core Classes
+
+### `ProcedureInfo`
+
+**Localização:** `app/core/models.py`
+
+**Descrição:** Dataclass que armazena informações sobre uma stored procedure analisada.
+
+**Atributos:**
+
+| Atributo | Tipo | Descrição |
+|----------|------|-----------|
+| `name` | `str` | Nome da procedure |
+| `schema` | `str` | Schema do banco de dados |
+| `source_code` | `str` | Código-fonte completo |
+| `parameters` | `List[Dict[str, str]]` | Lista de parâmetros (nome, tipo, direção) |
+| `called_procedures` | `Set[str]` | Procedures chamadas por esta |
+| `called_tables` | `Set[str]` | Tabelas acessadas |
+| `business_logic` | `str` | Descrição da lógica de negócio (gerada por LLM) |
+| `complexity_score` | `int` | Score de complexidade (1-10) |
+| `dependencies_level` | `int` | Nível hierárquico (0 = sem dependências) |
+
+**Exemplo:**
+```python
+from app.core.models import ProcedureInfo
+
+procedure = ProcedureInfo(
+    name="calc_saldo",
+    schema="core",
+    source_code="CREATE PROCEDURE...",
+    parameters=[{"name": "conta_id", "type": "INT", "direction": "IN"}],
+    called_procedures={"valida_conta"},
+    called_tables={"contas", "transacoes"},
+    business_logic="Calcula saldo da conta...",
+    complexity_score=7,
+    dependencies_level=0
+)
+```
+
+### `DatabaseConfig`
+
+**Localização:** `app/core/models.py`
+
+**Descrição:** Dataclass para configuração de conexão com banco de dados.
+
+**Atributos:**
+
+| Atributo | Tipo | Descrição |
+|----------|------|-----------|
+| `db_type` | `DatabaseType` | Tipo de banco (Enum) |
+| `user` | `str` | Usuário do banco |
+| `password` | `str` | Senha do banco |
+| `host` | `str` | Host ou DSN |
+| `port` | `Optional[int]` | Porta (opcional) |
+| `database` | `Optional[str]` | Nome do banco (opcional) |
+| `schema` | `Optional[str]` | Schema específico (opcional) |
+| `extra_params` | `Dict[str, str]` | Parâmetros extras (opcional) |
+
+**Métodos:**
+
+- `get_connection_string() -> str`: Retorna string de conexão formatada
+
+**Exemplo:**
+```python
+from app.core.models import DatabaseConfig, DatabaseType
+
+config = DatabaseConfig(
+    db_type=DatabaseType.POSTGRESQL,
+    user="usuario",
+    password="senha",
+    host="localhost",
+    port=5432,
+    database="meu_banco"
+)
+```
+
+### `DatabaseType`
+
+**Localização:** `app/core/models.py`
+
+**Descrição:** Enum com tipos de banco de dados suportados.
+
+**Valores:**
+- `ORACLE = "oracle"`
+- `POSTGRESQL = "postgresql"`
+- `MSSQL = "mssql"`
+- `MYSQL = "mysql"`
+
+---
+
+## I/O Classes
+
+### `ProcedureLoaderBase`
+
+**Localização:** `app/io/base.py`
+
+**Descrição:** Interface abstrata para carregadores de procedures.
+
+**Métodos Abstratos:**
+
+- `load_procedures(config: DatabaseConfig) -> Dict[str, str]`: Carrega procedures do banco
+- `get_database_type() -> DatabaseType`: Retorna tipo de banco suportado
+
+**Métodos Concretos:**
+
+- `test_connection(config: DatabaseConfig) -> bool`: Testa conexão
+- `validate_config(config: DatabaseConfig) -> None`: Valida configuração
+
+### `ProcedureLoader`
+
+**Localização:** `analyzer.py` (wrapper para backward compatibility)
+
+**Descrição:** Classe estática para carregar procedures (mantida para compatibilidade).
+
+**Métodos Estáticos:**
+
+- `from_files(directory_path: str, extension: str = "prc") -> Dict[str, str]`
+- `from_database(user: str, password: str, dsn: str, schema: Optional[str] = None, db_type: Optional[str] = None) -> Dict[str, str]`
+
+**Exemplo:**
+```python
+from analyzer import ProcedureLoader
+
+# De arquivos
+procedures = ProcedureLoader.from_files("./procedures", "prc")
+
+# De banco
+procedures = ProcedureLoader.from_database(
+    user="usuario",
+    password="senha",
+    dsn="localhost:1521/ORCL",
+    schema="MEU_SCHEMA"
+)
+```
+
+### Factory Functions
+
+**Localização:** `app/io/factory.py`
+
+**Funções:**
+
+- `create_loader(db_type: DatabaseType) -> ProcedureLoaderBase`: Cria loader baseado no tipo
+- `get_available_loaders() -> List[DatabaseType]`: Lista loaders disponíveis
+
+**Exemplo:**
+```python
+from app.io.factory import create_loader
+from app.core.models import DatabaseType
+
+loader = create_loader(DatabaseType.ORACLE)
+procedures = loader.load_procedures(config)
+```
+
+---
+
+## Analysis Classes
+
+### `LLMAnalyzer`
+
+**Localização:** `analyzer.py`
+
+**Descrição:** Analisador de código usando LLM local.
+
+**Construtor:**
+```python
+LLMAnalyzer(
+    model_name: str = "gpt-oss-120b",
+    device: str = "cuda",
+    max_new_tokens: int = 1024,
+    temperature: float = 0.3,
+    top_p: float = 0.95,
+    repetition_penalty: float = 1.15
+)
+```
+
+**Métodos:**
+
+- `analyze_business_logic(code: str, proc_name: str) -> str`: Analisa lógica de negócio
+- `analyze_dependencies(code: str, proc_name: str) -> Dict[str, List[str]]`: Extrai dependências
+- `analyze_complexity(code: str, proc_name: str) -> int`: Calcula complexidade
+
+**Exemplo:**
+```python
+from analyzer import LLMAnalyzer
+
+llm = LLMAnalyzer(model_name="gpt-oss-120b", device="cuda")
+logic = llm.analyze_business_logic(code, "calc_saldo")
+```
+
+### `ProcedureAnalyzer`
+
+**Localização:** `analyzer.py`
+
+**Descrição:** Orquestrador principal da análise de procedures.
+
+**Construtor:**
+```python
+ProcedureAnalyzer(llm: LLMAnalyzer)
+```
+
+**Métodos:**
+
+- `analyze_from_files(directory_path: str, extension: str = "prc") -> None`
+- `analyze_from_database(user: str, password: str, dsn: str, schema: Optional[str] = None, limit: Optional[int] = None, db_type: Optional[str] = None) -> None`
+- `export_results(output_file: str) -> None`: Exporta JSON
+- `visualize_dependencies(output_file: str) -> None`: Exporta grafo PNG
+- `export_mermaid_diagram(output_file: str) -> None`: Exporta diagrama Mermaid
+- `export_mermaid_hierarchy(output_file: str) -> None`: Exporta hierarquia Mermaid
+- `get_procedure_hierarchy() -> Dict[int, List[str]]`: Retorna hierarquia por níveis
+
+**Propriedades:**
+
+- `procedures: Dict[str, ProcedureInfo]`: Dicionário de procedures analisadas
+
+**Exemplo:**
+```python
+from analyzer import LLMAnalyzer, ProcedureAnalyzer
+
+llm = LLMAnalyzer()
+analyzer = ProcedureAnalyzer(llm)
+
+# Analisa arquivos
+analyzer.analyze_from_files("./procedures", "prc")
+
+# Exporta resultados
+analyzer.export_results("analysis.json")
+analyzer.export_mermaid_diagram("diagram.md")
+```
+
+---
+
+## Configuration
+
+### `Config`
+
+**Localização:** `app/config/config.py`
+
+**Descrição:** Classe de configuração centralizada.
+
+**Construtor:**
+```python
+Config()  # Carrega de .env / environment.env automaticamente
+```
+
+**Atributos Principais:**
+
+| Atributo | Tipo | Descrição |
+|----------|------|-----------|
+| `model_name` | `str` | Nome do modelo LLM |
+| `device` | `str` | Dispositivo (cuda/cpu) |
+| `db_type` | `DatabaseType` | Tipo de banco padrão |
+| `db_host` | `Optional[str]` | Host do banco |
+| `db_port` | `Optional[int]` | Porta do banco |
+| `output_dir` | `str` | Diretório de saída |
+
+**Função Helper:**
+
+- `get_config() -> Config`: Retorna instância singleton de Config
+
+**Exemplo:**
+```python
+from config import get_config
+
+config = get_config()
+print(config.model_name)
+```
+
+---
+
+## Exceptions
+
+Todas as exceções herdam de `CodeGraphAIError`:
+
+**Hierarquia:**
+```
+CodeGraphAIError (base)
+├── ProcedureLoadError
+├── LLMAnalysisError
+├── DependencyAnalysisError
+├── ExportError
+└── ValidationError
+```
+
+**Localização:** `app/core/models.py`
+
+**Uso:**
+```python
+from app.core.models import ProcedureLoadError, ValidationError
+
+try:
+    loader.load_procedures(config)
+except ProcedureLoadError as e:
+    print(f"Erro ao carregar: {e}")
+except ValidationError as e:
+    print(f"Configuração inválida: {e}")
+```
+
+---
+
+## Related Documentation
+
+- [Project Overview](project-overview.md) - Visão geral
+- [Architecture Details](architecture.md) - Arquitetura
+- [Database Adapters](database-adapters.md) - Adaptadores
+- [Integration Flows](integration-flows.md) - Exemplos de uso
+
+---
+
+Generated on: 2024-11-23 16:45:00
+
