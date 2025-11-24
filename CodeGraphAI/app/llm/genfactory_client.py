@@ -1,5 +1,5 @@
 """
-Cliente para API GenFactory (BNP Paribas)
+Cliente para API GenFactory
 Gerencia conexão HTTP, SSL e requisições para LLM via API
 """
 

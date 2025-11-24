@@ -108,21 +108,21 @@ class Config:
             # GenFactory Llama 70B
             self.genfactory_llama70b = self._load_genfactory_config(
                 'LLAMA70B',
-                'BNP GenFactory Llama 70B',
+                'GenFactory Llama 70B',
                 'meta-llama-3.3-70b-instruct'
             )
 
             # GenFactory Codestral
             self.genfactory_codestral = self._load_genfactory_config(
                 'CODESTRAL',
-                'BNP GenFactory Codestral Latest',
+                'GenFactory Codestral Latest',
                 'codestral-latest'
             )
 
             # GenFactory GPT-OSS-120B
             self.genfactory_gptoss120b = self._load_genfactory_config(
                 'GPTOSS120B',
-                'BNP GenFactory GPT-OSS-120B',
+                'GenFactory GPT-OSS-120B',
                 'gpt-oss-120b'
             )
 
