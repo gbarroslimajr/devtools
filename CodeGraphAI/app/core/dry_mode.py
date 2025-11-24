@@ -55,14 +55,14 @@ class DryRunValidator:
         self.config = config
 
     def validate_database_config(
-        self,
-        db_type: str,
-        user: str,
-        password: str,
-        host: str,
-        port: Optional[int] = None,
-        database: Optional[str] = None,
-        schema: Optional[str] = None
+            self,
+            db_type: str,
+            user: str,
+            password: str,
+            host: str,
+            port: Optional[int] = None,
+            database: Optional[str] = None,
+            schema: Optional[str] = None
     ) -> DryRunResult:
         """
         Valida configuração de banco de dados sem conectar
@@ -147,11 +147,11 @@ class DryRunValidator:
         return result
 
     def validate_llm_config(
-        self,
-        llm_mode: Optional[str] = None,
-        llm_provider: Optional[str] = None,
-        model_name: Optional[str] = None,
-        device: Optional[str] = None
+            self,
+            llm_mode: Optional[str] = None,
+            llm_provider: Optional[str] = None,
+            model_name: Optional[str] = None,
+            device: Optional[str] = None
     ) -> DryRunResult:
         """
         Valida configuração de LLM sem inicializar modelo
@@ -183,7 +183,7 @@ class DryRunValidator:
         if mode == 'api':
             # Valida provider
             valid_providers = ['genfactory_llama70b', 'genfactory_codestral',
-                             'genfactory_gptoss120b', 'openai', 'anthropic']
+                               'genfactory_gptoss120b', 'openai', 'anthropic']
             if provider not in valid_providers:
                 result.add_error(f"Provider inválido: {provider}")
                 result.add_info(f"Providers válidos: {', '.join(valid_providers)}")
@@ -224,10 +224,10 @@ class DryRunValidator:
         return result
 
     def validate_analysis_params(
-        self,
-        analysis_type: str,
-        limit: Optional[int] = None,
-        output_dir: Optional[str] = None
+            self,
+            analysis_type: str,
+            limit: Optional[int] = None,
+            output_dir: Optional[str] = None
     ) -> DryRunResult:
         """
         Valida parâmetros de análise
@@ -288,19 +288,19 @@ class DryRunValidator:
         return result
 
     def validate_full_analysis(
-        self,
-        analysis_type: str,
-        db_type: str,
-        user: str,
-        password: str,
-        host: str,
-        port: Optional[int] = None,
-        database: Optional[str] = None,
-        schema: Optional[str] = None,
-        limit: Optional[int] = None,
-        output_dir: Optional[str] = None,
-        llm_mode: Optional[str] = None,
-        llm_provider: Optional[str] = None
+            self,
+            analysis_type: str,
+            db_type: str,
+            user: str,
+            password: str,
+            host: str,
+            port: Optional[int] = None,
+            database: Optional[str] = None,
+            schema: Optional[str] = None,
+            limit: Optional[int] = None,
+            output_dir: Optional[str] = None,
+            llm_mode: Optional[str] = None,
+            llm_provider: Optional[str] = None
     ) -> DryRunResult:
         """
         Validação completa de uma análise (banco + LLM + parâmetros)
@@ -336,4 +336,3 @@ class DryRunValidator:
         result.is_valid = len(result.errors) == 0
 
         return result
-

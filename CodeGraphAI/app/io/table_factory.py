@@ -114,4 +114,3 @@ def _try_import_table_loader(db_type: DatabaseType) -> None:
     except ImportError as e:
         logger.debug(f"Não foi possível importar {module_name}: {e}")
         # Não levanta exceção - apenas loga, pois o driver pode não estar instalado
-

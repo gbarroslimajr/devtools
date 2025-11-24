@@ -107,6 +107,4 @@ class FileLoader(ProcedureLoaderBase):
         loader = FileLoader(directory_path, extension)
         return loader.load_procedures()
 
-
 # FileLoader não precisa ser registrado no factory pois não usa DatabaseConfig
-

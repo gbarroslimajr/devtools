@@ -82,4 +82,3 @@ class TableLoaderBase(ABC):
             raise ValidationError("Senha do banco não pode ser vazia")
         if not config.host or not config.host.strip():
             raise ValidationError("Host do banco não pode ser vazio")
-
