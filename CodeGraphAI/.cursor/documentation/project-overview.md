@@ -23,7 +23,7 @@
 
 **Status:** Ativo, em desenvolvimento contínuo
 **Versão:** 1.0.0+
-**Python:** 3.8+
+**Python:** 3.9+ (recomendado) ou 3.8+ (mínimo)
 **Licença:** MIT
 
 ### Objetivo Principal
@@ -51,6 +51,9 @@ Automatizar a análise, mapeamento e visualização de dependências entre store
 - 💬 **Query Natural** - Faça perguntas em linguagem natural sobre o código
 - 🔗 **Field Tracing** - Rastreamento completo de origem e destino de campos
 - 📊 **Impact Analysis** - Análise de impacto de mudanças em procedures
+- 🔎 **Vector Knowledge Graph** - Busca semântica usando embeddings (sentence-transformers)
+- 🎯 **Hybrid Search** - Combina busca vetorial + relacionamentos estruturais do grafo
+- 📦 **RAG Pipeline** - Retrieval-Augmented Generation para descoberta inteligente de tabelas/procedures
 
 ---
 
@@ -412,7 +415,7 @@ Suporta configuração via:
 
 ### Python Version
 
-- **Mínimo:** Python 3.8
+- **Mínimo:** Python 3.8+ (3.9+ recomendado)
 - **Configurado em:** `pyproject.toml` (target-version: py38-py311)
 
 ### Gerenciamento de Dependências
@@ -514,7 +517,7 @@ tests/
    - Line length: 100
 
 3. **mypy** (type checking)
-   - Python version: 3.8
+   - Python version: 3.9 (recomendado) ou 3.8 (mínimo)
    - `ignore_missing_imports=true` para algumas libs
    - Exclui: tests/, build/, dist/
 
@@ -722,4 +725,5 @@ pytest --cov=app --cov-report=html
 
 ---
 
-Generated on: 2025-01-27 12:00:00
+---
+Generated on: 2025-11-24 19:39:51

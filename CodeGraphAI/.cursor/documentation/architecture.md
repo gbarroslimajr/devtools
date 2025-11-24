@@ -148,12 +148,26 @@ O agent usa tools especializadas para responder perguntas em linguagem natural s
 │  │  - analyze() (natural language queries)              │   │
 │  └───────────────────┬──────────────────────────────────┘   │
 │  ┌───────────────────▼──────────────────────────────────┐   │
+│  │       VectorKnowledgeGraph                          │   │
+│  │  - semantic_search()                                │   │
+│  │  - hybrid_search()                                  │   │
+│  │  - sentence-transformers embeddings                 │   │
+│  │  - ChromaDB vector store                            │   │
+│  └───────────────────┬──────────────────────────────────┘   │
+│  ┌───────────────────▼──────────────────────────────────┐   │
 │  │       CodeKnowledgeGraph (NetworkX)                   │   │
 │  │  - add_procedure()                                    │   │
 │  │  - add_table()                                        │   │
 │  │  - get_procedure_context()                            │   │
 │  │  - save_to_cache()                                    │   │
 │  └───────────────────┬──────────────────────────────────┘   │
+│  ┌───────────────────▼──────────────────────────────────┐   │
+│  │       VectorKnowledgeGraph                            │   │
+│  │  - semantic_search()                                  │   │
+│  │  - hybrid_search()                                    │   │
+│  │  - sentence-transformers embeddings                   │   │
+│  │  - ChromaDB vector store                              │   │
+│  └──────────────────────────────────────────────────────┘   │
 │  ┌───────────────────▼──────────────────────────────────┐   │
 │  │       StaticCodeAnalyzer                              │   │
 │  │  - analyze_code() (regex-based)                      │   │
@@ -333,6 +347,17 @@ O agent usa tools especializadas para responder perguntas em linguagem natural s
    │   ├─> Carrega KnowledgeGraph do cache
    │   │   └─> cache/knowledge_graph.json
    │   │
+   │   ├─> Inicializa VectorKnowledgeGraph (opcional)
+   │   │   │
+   │   │   ├─> Carrega modelo de embedding (sentence-transformers)
+   │   │   │   └─> all-MiniLM-L6-v2 (padrão)
+   │   │   │
+   │   │   ├─> Conecta ao ChromaDB vector store
+   │   │   │   └─> cache/vector_store/
+   │   │   │
+   │   │   └─> Verifica se precisa indexar
+   │   │       └─> Indexa nós do grafo se necessário
+   │   │
    │   ├─> Inicializa CodeAnalysisAgent
    │   │   │
    │   │   ├─> Cria LangChain agent com tools:
@@ -341,6 +366,9 @@ O agent usa tools especializadas para responder perguntas em linguagem natural s
    │   │   │   - analyze_field
    │   │   │   - trace_field_flow
    │   │   │   - crawl_procedure
+   │   │   │   - semantic_search_tables (se vector_kg disponível)
+   │   │   │   - semantic_search_procedures (se vector_kg disponível)
+   │   │   │   - hybrid_search (se vector_kg disponível)
    │   │   │   - execute_query (opcional)
    │   │   │
    │   │   └─> Configura system prompt
@@ -349,8 +377,19 @@ O agent usa tools especializadas para responder perguntas em linguagem natural s
    │   │   │
    │   │   ├─> Agent escolhe tool apropriada
    │   │   │   │
-   │   │   │   ├─> Tool executa query no KnowledgeGraph
-   │   │   │   │   └─> Retorna informações
+   │   │   │   ├─> Se busca semântica:
+   │   │   │   │   │
+   │   │   │   │   ├─> VectorKnowledgeGraph.semantic_search()
+   │   │   │   │   │   ├─> Gera embedding da query
+   │   │   │   │   │   ├─> Busca similaridade no ChromaDB
+   │   │   │   │   │   └─> Retorna nós mais similares
+   │   │   │   │   │
+   │   │   │   │   └─> Se hybrid_search:
+   │   │   │   │       └─> Expande com relacionamentos do grafo
+   │   │   │   │
+   │   │   │   ├─> Se busca exata:
+   │   │   │   │   └─> Tool executa query no KnowledgeGraph
+   │   │   │   │       └─> Retorna informações
    │   │   │   │
    │   │   │   └─> Agent processa resultado
    │   │   │
@@ -457,7 +496,30 @@ CodeGraphAIError (base)
 - JSON para persistência
 - Cache em `cache/knowledge_graph.json`
 
-### 8. Batch Processing e Paralelismo
+### 8. Vector Knowledge Graph e Busca Semântica
+
+**Decisão:** Implementar RAG pipeline com embeddings para busca semântica
+
+**Razão:**
+- Permite encontrar tabelas/procedures por significado, não apenas por nome exato
+- Melhora descoberta de relacionamentos semânticos
+- Complementa busca estrutural do grafo
+
+**Implementação:**
+- `VectorKnowledgeGraph` usando composição com `CodeKnowledgeGraph`
+- Backend padrão: `sentence-transformers` (leve e eficiente)
+- Vector store: ChromaDB (persistente, local)
+- Batch processing de embeddings para performance
+- Hybrid search: combina busca vetorial + estrutural
+
+**Características:**
+- Type hints completos (Python AI Engineer standards)
+- Dataclasses para estruturas de dados
+- Device-agnostic (CPU/GPU)
+- Graceful degradation se dependências não disponíveis
+- Indexação automática com verificação de atualização
+
+### 9. Batch Processing e Paralelismo
 
 **Decisão:** Implementar batch processing e paralelismo para análise de tabelas
 
@@ -533,7 +595,11 @@ CodeGraphAIError (base)
 
 ### `app/graph/`
 
-**Responsabilidade:** Knowledge Graph
+**Responsabilidade:** Knowledge Graph e Vector Search
+
+**Arquivos:**
+- `knowledge_graph.py`: `CodeKnowledgeGraph` (NetworkX-based)
+- `vector_knowledge_graph.py`: `VectorKnowledgeGraph` (embeddings + ChromaDB)
 
 **Arquivos:**
 - `knowledge_graph.py`: `CodeKnowledgeGraph` usando NetworkX
@@ -666,4 +732,5 @@ CodeGraphAIError (base)
 
 ---
 
-Generated on: 2025-01-27 12:00:00
+---
+Generated on: 2025-11-24 19:39:51

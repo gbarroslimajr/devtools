@@ -363,6 +363,16 @@ User
  │    ├─> Carrega KnowledgeGraph do cache
  │    │    └─> cache/knowledge_graph.json
  │    │
+ │    ├─> Inicializa VectorKnowledgeGraph (opcional)
+ │    │    │
+ │    │    ├─> Carrega modelo de embedding
+ │    │    │   └─> sentence-transformers/all-MiniLM-L6-v2
+ │    │    │
+ │    │    ├─> Conecta ao ChromaDB vector store
+ │    │    │   └─> cache/vector_store/
+ │    │    │
+ │    │    └─> Verifica indexação (indexa se necessário)
+ │    │
  │    ├─> Inicializa CodeAnalysisAgent
  │    │    │
  │    │    ├─> Cria LangChain agent com tools:
@@ -371,6 +381,9 @@ User
  │    │    │    - analyze_field
  │    │    │    - trace_field_flow
  │    │    │    - crawl_procedure
+ │    │    │    - semantic_search_tables (se vector_kg disponível)
+ │    │    │    - semantic_search_procedures (se vector_kg disponível)
+ │    │    │    - hybrid_search (se vector_kg disponível)
  │    │    │    - execute_query (opcional)
  │    │    │
  │    │    └─> Configura system prompt
@@ -379,8 +392,19 @@ User
  │    │    │
  │    │    ├─> Agent escolhe tool apropriada
  │    │    │    │
- │    │    │    ├─> Tool executa query no KnowledgeGraph
- │    │    │    │    └─> Retorna informações
+ │    │    │    ├─> Se busca semântica:
+ │    │    │    │    │
+ │    │    │    │    ├─> VectorKnowledgeGraph.semantic_search()
+ │    │    │    │    │   ├─> Gera embedding da query
+ │    │    │    │    │   ├─> Busca similaridade no ChromaDB
+ │    │    │    │    │   └─> Retorna nós mais similares
+ │    │    │    │    │
+ │    │    │    │    └─> Se hybrid_search:
+ │    │    │    │        └─> Expande com relacionamentos do grafo
+ │    │    │    │
+ │    │    │    ├─> Se busca exata:
+ │    │    │    │    └─> Tool executa query no KnowledgeGraph
+ │    │    │    │        └─> Retorna informações
  │    │    │    │
  │    │    │    └─> Agent processa resultado
  │    │    │
@@ -408,6 +432,15 @@ python main.py query "Se eu modificar CALCULAR_SALDO, quais procedures serão im
 
 # Rastreamento de campo
 python main.py query "De onde vem o campo email usado em CRIAR_USUARIO?"
+
+# Busca semântica (usa VectorKnowledgeGraph automaticamente se disponível)
+python main.py query "Quais tabelas estão relacionadas a pagamentos e transações financeiras?"
+
+# Busca semântica de procedures
+python main.py query "Encontre procedures que calculam valores ou fazem cálculos matemáticos"
+
+# Hybrid search (combina busca semântica + relacionamentos)
+python main.py query "Tabelas de clientes e suas procedures relacionadas"
 
 # Modo verbose (mostra tools utilizadas)
 python main.py query "Quem chama VALIDAR_USUARIO?" --verbose
@@ -458,6 +491,74 @@ result = agent.analyze("O que faz a procedure PROCESSAR_PEDIDO?")
 if result["success"]:
     print(result["answer"])
     print(f"Tools usadas: {result['tool_call_count']}")
+```
+
+### Exemplo Programático com Vector Knowledge Graph
+
+```python
+from app.graph.knowledge_graph import CodeKnowledgeGraph
+from app.graph.vector_knowledge_graph import VectorKnowledgeGraph
+from app.analysis.code_crawler import CodeCrawler
+from app.tools import init_tools, get_all_tools
+from app.agents.code_analysis_agent import CodeAnalysisAgent
+from analyzer import LLMAnalyzer
+from app.config.config import get_config
+
+# Setup
+config = get_config()
+llm_analyzer = LLMAnalyzer(config=config)
+chat_model = llm_analyzer.get_chat_model()
+
+# Load knowledge graph
+knowledge_graph = CodeKnowledgeGraph(cache_path="./cache/knowledge_graph.json")
+
+# Initialize Vector Knowledge Graph (busca semântica)
+vector_kg = VectorKnowledgeGraph(
+    knowledge_graph=knowledge_graph,
+    embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+    vector_store_path="./cache/vector_store"
+)
+
+# Initialize crawler
+crawler = CodeCrawler(knowledge_graph)
+
+# Initialize tools (inclui vector tools se vector_kg disponível)
+init_tools(knowledge_graph, crawler, vector_kg=vector_kg)
+tools = get_all_tools()
+
+# Create agent
+agent = CodeAnalysisAgent(
+    llm=chat_model,
+    tools=tools,
+    verbose=True,
+    max_iterations=15
+)
+
+# Query com busca semântica
+result = agent.analyze(
+    "Quais tabelas estão relacionadas a pagamentos e transações financeiras?"
+)
+if result["success"]:
+    print(result["answer"])
+    print(f"Tools usadas: {result['tool_call_count']}")
+
+# Uso direto do VectorKnowledgeGraph
+semantic_results = vector_kg.semantic_search(
+    "tabelas de clientes e usuários",
+    top_k=5,
+    node_type="table"
+)
+
+for result in semantic_results:
+    print(f"{result.node_id}: {result.similarity:.3f}")
+    print(f"  Metadata: {result.metadata}")
+
+# Hybrid search
+hybrid_results = vector_kg.hybrid_search(
+    "procedures que processam pedidos",
+    top_k=5,
+    expand_relationships=True
+)
 ```
 
 ---
@@ -668,5 +769,6 @@ except CodeGraphAIError as e:
 
 ---
 
-Generated on: 2025-01-27 12:00:00
+---
+Generated on: 2025-11-24 19:39:51
 

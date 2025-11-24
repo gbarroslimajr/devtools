@@ -6,6 +6,7 @@
 - [Core Classes](#core-classes)
 - [I/O Classes](#io-classes)
 - [Analysis Classes](#analysis-classes)
+- [Graph Classes](#graph-classes)
 - [Configuration](#configuration)
 - [Exceptions](#exceptions)
 - [Related Documentation](#related-documentation)
@@ -586,6 +587,168 @@ llm = LLMAnalyzer(config=config)
 
 ---
 
+## Graph Classes
+
+### `CodeKnowledgeGraph`
+
+**Localização:** `app/graph/knowledge_graph.py`
+
+**Descrição:** Knowledge Graph baseado em NetworkX para armazenar e consultar informações sobre procedures e tabelas.
+
+**Construtor:**
+```python
+CodeKnowledgeGraph()
+```
+
+**Métodos principais:**
+- `add_procedure(procedure: ProcedureInfo) -> None`: Adiciona procedure ao grafo
+- `add_table(table: TableInfo) -> None`: Adiciona tabela ao grafo
+- `get_procedure_context(procedure_name: str) -> Dict[str, Any]`: Obtém contexto de uma procedure
+- `save_to_cache(cache_path: Path) -> None`: Salva grafo em cache JSON
+- `load_from_cache(cache_path: Path) -> None`: Carrega grafo do cache
+
+**Exemplo:**
+```python
+from app.graph.knowledge_graph import CodeKnowledgeGraph
+from app.core.models import ProcedureInfo
+
+kg = CodeKnowledgeGraph()
+kg.add_procedure(procedure_info)
+context = kg.get_procedure_context("calc_saldo")
+```
+
+### `VectorKnowledgeGraph`
+
+**Localização:** `app/graph/vector_knowledge_graph.py`
+
+**Descrição:** Extensão do Knowledge Graph com busca semântica usando embeddings. Implementa RAG pipeline completo com hybrid search.
+
+**Construtor:**
+```python
+VectorKnowledgeGraph(
+    knowledge_graph: CodeKnowledgeGraph,
+    embedding_backend: str = "sentence-transformers",
+    embedding_model: Optional[str] = None,
+    vector_store_path: Optional[Path] = None,
+    batch_size: int = 32,
+    device: Optional[str] = None
+)
+```
+
+**Parâmetros:**
+- `knowledge_graph`: Instância de `CodeKnowledgeGraph` (composição)
+- `embedding_backend`: Backend de embedding (padrão: "sentence-transformers")
+- `embedding_model`: Nome do modelo (padrão: "sentence-transformers/all-MiniLM-L6-v2")
+- `vector_store_path`: Caminho para vector store ChromaDB (padrão: "./cache/vector_store")
+- `batch_size`: Tamanho do batch para processamento (padrão: 32)
+- `device`: Dispositivo para embeddings ("cpu" ou "cuda", padrão: auto-detect)
+
+**Métodos principais:**
+
+#### `semantic_search(query: str, top_k: int = 5, node_type: Optional[str] = None) -> List[SearchResult]`
+
+Busca semântica de nós no grafo usando embeddings.
+
+**Parâmetros:**
+- `query`: Query em linguagem natural
+- `top_k`: Número de resultados a retornar (padrão: 5)
+- `node_type`: Filtrar por tipo ("procedure" ou "table", opcional)
+
+**Retorna:** Lista de `SearchResult` ordenada por similaridade
+
+**Exemplo:**
+```python
+from app.graph.vector_knowledge_graph import VectorKnowledgeGraph
+from app.graph.knowledge_graph import CodeKnowledgeGraph
+
+kg = CodeKnowledgeGraph()
+# ... popular grafo ...
+
+vector_kg = VectorKnowledgeGraph(kg)
+results = vector_kg.semantic_search(
+    "tabelas relacionadas a pagamentos",
+    top_k=10,
+    node_type="table"
+)
+
+for result in results:
+    print(f"{result.node_id}: {result.similarity:.3f}")
+```
+
+#### `hybrid_search(query: str, top_k: int = 5, expand_relationships: bool = True) -> List[SearchResult]`
+
+Busca híbrida que combina busca semântica com relacionamentos estruturais do grafo.
+
+**Parâmetros:**
+- `query`: Query em linguagem natural
+- `top_k`: Número de resultados iniciais da busca semântica
+- `expand_relationships`: Se deve expandir com relacionamentos (padrão: True)
+
+**Retorna:** Lista de `SearchResult` com contexto expandido
+
+**Exemplo:**
+```python
+results = vector_kg.hybrid_search(
+    "procedures que calculam saldo",
+    top_k=5,
+    expand_relationships=True
+)
+```
+
+#### `_initialize_vector_store() -> None`
+
+Inicializa o vector store ChromaDB e indexa todos os nós do grafo. Chamado automaticamente na primeira busca.
+
+**Interno:** Não deve ser chamado diretamente.
+
+**Classes de Dados:**
+
+#### `SearchResult`
+
+**Localização:** `app/graph/vector_knowledge_graph.py`
+
+**Descrição:** Resultado de busca semântica.
+
+**Atributos:**
+- `node_id: str`: ID do nó no grafo
+- `similarity: float`: Score de similaridade (0-1)
+- `metadata: Dict[str, Any]`: Metadados do nó
+- `context: Dict[str, Any]`: Contexto adicional (relacionamentos, etc.)
+
+**Métodos:**
+- `to_dict() -> Dict[str, Any]`: Converte para dicionário
+
+**Exemplo:**
+```python
+from app.graph.vector_knowledge_graph import SearchResult
+
+result = SearchResult(
+    node_id="procedure:calc_saldo",
+    similarity=0.85,
+    metadata={"name": "calc_saldo", "schema": "core"},
+    context={"called_procedures": ["valida_conta"]}
+)
+```
+
+**Configuração:**
+
+Variáveis de ambiente (via `Config`):
+- `CODEGRAPHAI_EMBEDDING_BACKEND`: Backend de embedding (padrão: "sentence-transformers")
+- `CODEGRAPHAI_EMBEDDING_MODEL`: Modelo de embedding (padrão: "sentence-transformers/all-MiniLM-L6-v2")
+- `CODEGRAPHAI_VECTOR_STORE_PATH`: Caminho para vector store (padrão: "./cache/vector_store")
+
+**Dependências:**
+- `sentence-transformers>=2.2.0`: Para geração de embeddings
+- `chromadb>=0.4.0`: Para vector store persistente
+
+**Notas:**
+- Indexação automática na primeira busca
+- Cache persistente em disco (ChromaDB)
+- Graceful degradation se dependências não disponíveis
+- Device-agnostic (CPU/GPU automático)
+
+---
+
 ## Exceptions
 
 Todas as exceções herdam de `CodeGraphAIError`:
@@ -625,5 +788,6 @@ except ValidationError as e:
 
 ---
 
-Generated on: 2025-01-27 12:00:00
+---
+Generated on: 2025-11-24 19:39:51
 
