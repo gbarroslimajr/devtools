@@ -57,6 +57,10 @@ output/
 !docs/**/*.md
 !.cursor/documentation/**/*.md
 
+# Cache e Vector Store
+cache/
+vector_store/
+
 # Testes
 .pytest_cache/
 .coverage
