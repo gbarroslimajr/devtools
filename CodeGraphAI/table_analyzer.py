@@ -659,7 +659,26 @@ class TableAnalyzer:
             nodes = list(self.relationship_graph.nodes())[:max_nodes]
 
             with open(output_file, 'w', encoding='utf-8') as f:
-                f.write("```mermaid\nerDiagram\n")
+                f.write("```mermaid\n")
+                f.write("%%{init: {\n")
+                f.write("  'theme': 'base',\n")
+                f.write("  'themeVariables': {\n")
+                f.write("    'fontSize': '16px',\n")
+                f.write("    'fontFamily': 'Arial, sans-serif',\n")
+                f.write("    'primaryColor': '#ff6b6b',\n")
+                f.write("    'primaryTextColor': '#fff',\n")
+                f.write("    'primaryBorderColor': '#c92a2a',\n")
+                f.write("    'lineColor': '#333',\n")
+                f.write("    'secondaryColor': '#ffd93d',\n")
+                f.write("    'tertiaryColor': '#51cf66'\n")
+                f.write("  },\n")
+                f.write("  'er': {\n")
+                f.write("    'entityPadding': 15,\n")
+                f.write("    'fill': '#fff',\n")
+                f.write("    'stroke': '#333'\n")
+                f.write("  }\n")
+                f.write("}}%%\n")
+                f.write("erDiagram\n")
 
                 # Adiciona entidades (tabelas)
                 for node in nodes:
@@ -727,7 +746,26 @@ class TableAnalyzer:
             hierarchy = self.get_table_hierarchy()
 
             with open(output_file, 'w', encoding='utf-8') as f:
-                f.write("```mermaid\ngraph TD\n")
+                f.write("```mermaid\n")
+                f.write("%%{init: {\n")
+                f.write("  'theme': 'base',\n")
+                f.write("  'themeVariables': {\n")
+                f.write("    'fontSize': '16px',\n")
+                f.write("    'fontFamily': 'Arial, sans-serif',\n")
+                f.write("    'primaryColor': '#ff6b6b',\n")
+                f.write("    'primaryTextColor': '#fff',\n")
+                f.write("    'primaryBorderColor': '#c92a2a',\n")
+                f.write("    'lineColor': '#333',\n")
+                f.write("    'secondaryColor': '#ffd93d',\n")
+                f.write("    'tertiaryColor': '#51cf66'\n")
+                f.write("  },\n")
+                f.write("  'flowchart': {\n")
+                f.write("    'nodeSpacing': 50,\n")
+                f.write("    'rankSpacing': 80,\n")
+                f.write("    'curve': 'basis'\n")
+                f.write("  }\n")
+                f.write("}}%%\n")
+                f.write("graph TD\n")
 
                 # Agrupa por nível
                 for level in sorted(hierarchy.keys()):

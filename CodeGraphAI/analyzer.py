@@ -1308,7 +1308,26 @@ class ProcedureAnalyzer:
             nodes = list(self.dependency_graph.nodes())[:max_nodes]
 
             with open(output_file, 'w', encoding='utf-8') as f:
-                f.write("```mermaid\ngraph TD\n")
+                f.write("```mermaid\n")
+                f.write("%%{init: {\n")
+                f.write("  'theme': 'base',\n")
+                f.write("  'themeVariables': {\n")
+                f.write("    'fontSize': '16px',\n")
+                f.write("    'fontFamily': 'Arial, sans-serif',\n")
+                f.write("    'primaryColor': '#ff6b6b',\n")
+                f.write("    'primaryTextColor': '#fff',\n")
+                f.write("    'primaryBorderColor': '#c92a2a',\n")
+                f.write("    'lineColor': '#333',\n")
+                f.write("    'secondaryColor': '#ffd93d',\n")
+                f.write("    'tertiaryColor': '#51cf66'\n")
+                f.write("  },\n")
+                f.write("  'flowchart': {\n")
+                f.write("    'nodeSpacing': 50,\n")
+                f.write("    'rankSpacing': 80,\n")
+                f.write("    'curve': 'basis'\n")
+                f.write("  }\n")
+                f.write("}}%%\n")
+                f.write("graph TD\n")
 
                 # Adiciona nós com cores por complexidade
                 for node in nodes:
@@ -1358,7 +1377,26 @@ class ProcedureAnalyzer:
             hierarchy = self.get_procedure_hierarchy()
 
             with open(output_file, 'w', encoding='utf-8') as f:
-                f.write("```mermaid\ngraph TD\n")
+                f.write("```mermaid\n")
+                f.write("%%{init: {\n")
+                f.write("  'theme': 'base',\n")
+                f.write("  'themeVariables': {\n")
+                f.write("    'fontSize': '16px',\n")
+                f.write("    'fontFamily': 'Arial, sans-serif',\n")
+                f.write("    'primaryColor': '#ff6b6b',\n")
+                f.write("    'primaryTextColor': '#fff',\n")
+                f.write("    'primaryBorderColor': '#c92a2a',\n")
+                f.write("    'lineColor': '#333',\n")
+                f.write("    'secondaryColor': '#ffd93d',\n")
+                f.write("    'tertiaryColor': '#51cf66'\n")
+                f.write("  },\n")
+                f.write("  'flowchart': {\n")
+                f.write("    'nodeSpacing': 50,\n")
+                f.write("    'rankSpacing': 80,\n")
+                f.write("    'curve': 'basis'\n")
+                f.write("  }\n")
+                f.write("}}%%\n")
+                f.write("graph TD\n")
 
                 # Organiza por níveis
                 for level in sorted(hierarchy.keys()):
@@ -1417,7 +1455,26 @@ class ProcedureAnalyzer:
                 f.write(f"# Flowchart: {proc_name}\n\n")
                 f.write(f"**Complexidade:** {info.complexity_score}/10\n")
                 f.write(f"**Nível de Dependência:** {info.dependencies_level}\n\n")
-                f.write("```mermaid\nflowchart TD\n")
+                f.write("```mermaid\n")
+                f.write("%%{init: {\n")
+                f.write("  'theme': 'base',\n")
+                f.write("  'themeVariables': {\n")
+                f.write("    'fontSize': '16px',\n")
+                f.write("    'fontFamily': 'Arial, sans-serif',\n")
+                f.write("    'primaryColor': '#ff6b6b',\n")
+                f.write("    'primaryTextColor': '#fff',\n")
+                f.write("    'primaryBorderColor': '#c92a2a',\n")
+                f.write("    'lineColor': '#333',\n")
+                f.write("    'secondaryColor': '#ffd93d',\n")
+                f.write("    'tertiaryColor': '#51cf66'\n")
+                f.write("  },\n")
+                f.write("  'flowchart': {\n")
+                f.write("    'nodeSpacing': 50,\n")
+                f.write("    'rankSpacing': 80,\n")
+                f.write("    'curve': 'basis'\n")
+                f.write("  }\n")
+                f.write("}}%%\n")
+                f.write("flowchart TD\n")
 
                 # Sanitiza nome da procedure para o nó inicial
                 safe_proc_name = proc_name.replace('"', "'")
