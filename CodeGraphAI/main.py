@@ -406,10 +406,11 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
 @click.option('--export-mermaid', is_flag=True, default=False, help='Exportar diagramas Mermaid')
 @click.option('--batch-size', type=int, default=None, help='Tamanho do batch para análise de tabelas (padrão: 5, 1 desabilita batch)')
 @click.option('--parallel-workers', type=int, default=None, help='Número de workers paralelos para análise de tabelas (padrão: 2, 1 desabilita paralelismo)')
+@click.option('--no-cache', is_flag=True, default=False, help='Força atualização ignorando cache existente')
 @click.option('--dry-run', is_flag=True, default=False, help='Modo dry-run: valida sem executar')
 @click.pass_context
 def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, database, schema, limit,
-           output_dir, model, device, export_json, export_png, export_mermaid, batch_size, parallel_workers, dry_run):
+           output_dir, model, device, export_json, export_png, export_mermaid, batch_size, parallel_workers, no_cache, dry_run):
     """Analisa tabelas e/ou procedures do banco de dados"""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
@@ -600,7 +601,9 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
                     user, password, connection_host, schema, limit,
                     db_type=db_type, database=database, port=port,
                     batch_size=effective_batch_size,
-                    parallel_workers=effective_parallel_workers
+                    parallel_workers=effective_parallel_workers,
+                    use_cache=True,
+                    force_update=no_cache
                 )
 
                 # Exporta resultados de tabelas

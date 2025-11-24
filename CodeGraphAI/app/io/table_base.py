@@ -15,12 +15,19 @@ class TableLoaderBase(ABC):
     """Interface abstrata para carregadores de tabelas de banco de dados"""
 
     @abstractmethod
-    def load_tables(self, config: DatabaseConfig) -> Dict[str, TableInfo]:
+    def load_tables(
+        self,
+        config: DatabaseConfig,
+        use_cache: bool = True,
+        force_update: bool = False
+    ) -> Dict[str, TableInfo]:
         """
         Carrega tabelas do banco de dados
 
         Args:
             config: Configuração de conexão com o banco
+            use_cache: Se True, usa cache quando disponível (padrão: True)
+            force_update: Se True, ignora cache e força atualização do banco (padrão: False)
 
         Returns:
             Dict com nome da tabela como chave e TableInfo como valor.

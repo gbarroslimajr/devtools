@@ -19,6 +19,7 @@ from app.core.models import (
 )
 from app.io.table_base import TableLoaderBase
 from app.io.table_factory import register_table_loader
+from app.io.table_cache import TableCache
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,19 @@ class PostgreSQLTableLoader(TableLoaderBase):
         """Retorna o tipo de banco de dados"""
         return DatabaseType.POSTGRESQL
 
-    def load_tables(self, config: DatabaseConfig) -> Dict[str, TableInfo]:
+    def load_tables(
+        self,
+        config: DatabaseConfig,
+        use_cache: bool = True,
+        force_update: bool = False
+    ) -> Dict[str, TableInfo]:
         """
         Carrega tabelas do PostgreSQL
 
         Args:
             config: Configuração de conexão
+            use_cache: Se True, usa cache quando disponível (padrão: True)
+            force_update: Se True, ignora cache e força atualização do banco (padrão: False)
 
         Returns:
             Dict com schema.table como chave e TableInfo como valor
@@ -126,11 +134,27 @@ class PostgreSQLTableLoader(TableLoaderBase):
                 full_name = f"{schema_name}.{table_name}" if schema_name != 'public' else table_name
 
                 try:
-                    table_info = self._load_table_details(
-                        cursor, schema_name, table_name, config
-                    )
-                    tables[full_name] = table_info
-                    logger.info(f"Carregado: {full_name}")
+                    # Tenta carregar do cache primeiro
+                    table_info = None
+                    if use_cache and not force_update:
+                        table_info = TableCache.load_table_from_cache(config, schema_name, table_name)
+                        if table_info:
+                            logger.debug(f"Cache hit para {full_name}")
+                            tables[full_name] = table_info
+                            continue
+
+                    # Se não encontrou no cache ou force_update, carrega do banco
+                    if not table_info:
+                        table_info = self._load_table_details(
+                            cursor, schema_name, table_name, config
+                        )
+                        tables[full_name] = table_info
+                        logger.info(f"Carregado do banco: {full_name}")
+
+                        # Salva no cache
+                        if use_cache:
+                            TableCache.save_table_to_cache(config, table_info)
+
                 except Exception as e:
                     logger.error(f"Erro ao carregar {full_name}: {e}")
                     import traceback

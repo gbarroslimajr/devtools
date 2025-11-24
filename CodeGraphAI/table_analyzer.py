@@ -75,7 +75,9 @@ class TableAnalyzer:
         database: Optional[str] = None,
         port: Optional[int] = None,
         batch_size: Optional[int] = None,
-        parallel_workers: Optional[int] = None
+        parallel_workers: Optional[int] = None,
+        use_cache: bool = True,
+        force_update: bool = False
     ) -> None:
         """
         Analisa tabelas diretamente do banco de dados
@@ -93,6 +95,8 @@ class TableAnalyzer:
             port: Porta do banco de dados
             batch_size: Tamanho do batch para análise (padrão: 5, None usa config)
             parallel_workers: Número de workers paralelos (padrão: 2, None usa config, 1 desabilita)
+            use_cache: Se True, usa cache quando disponível (padrão: True)
+            force_update: Se True, ignora cache e força atualização do banco (padrão: False)
 
         Raises:
             TableLoadError: Se houver erro ao carregar do banco
@@ -129,7 +133,7 @@ class TableAnalyzer:
 
         # Carrega tabelas do banco
         loader = create_table_loader(db_type_enum)
-        tables_db = loader.load_tables(config)
+        tables_db = loader.load_tables(config, use_cache=use_cache, force_update=force_update)
 
         if limit and limit > 0:
             tables_db = dict(list(tables_db.items())[:limit])
