@@ -157,6 +157,8 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
 
         # Resolve caminhos
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
+        format_subdir = "toon-format" if config.llm_use_toon else "json-format"
+        output_path = output_path / format_subdir
         output_path.mkdir(parents=True, exist_ok=True)
 
         # Configura modelo baseado no modo
@@ -358,6 +360,8 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
 
         # Resolve caminhos
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
+        format_subdir = "toon-format" if config.llm_use_toon else "json-format"
+        output_path = output_path / format_subdir
         output_path.mkdir(parents=True, exist_ok=True)
 
         # Configura modelo baseado no modo
@@ -501,6 +505,62 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
             click.echo(f"  - Procedures: {len(procedure_analyzer.procedures)}")
             click.echo(f"  - Tabelas: {len(table_analyzer.tables)}")
 
+        # Estatísticas de tokens
+        click.echo("\nESTATÍSTICAS - TOKENS LLM")
+        click.echo("-" * 60)
+
+        # Coletar estatísticas de tokens do LLM analyzer
+        token_stats = None
+        if procedure_analyzer and hasattr(procedure_analyzer, 'llm') and hasattr(procedure_analyzer.llm, 'get_token_statistics'):
+            token_stats = procedure_analyzer.llm.get_token_statistics()
+        elif table_analyzer and hasattr(table_analyzer, 'llm') and hasattr(table_analyzer.llm, 'get_token_statistics'):
+            token_stats = table_analyzer.llm.get_token_statistics()
+
+        if token_stats and token_stats.get('total_requests', 0) > 0:
+            total = token_stats.get('total_tokens', {})
+            click.echo(f"Total de requisições LLM: {token_stats.get('total_requests', 0)}")
+            click.echo(f"Tokens de entrada (prompt): {total.get('prompt_tokens', 0):,}")
+            click.echo(f"Tokens de saída (completion): {total.get('completion_tokens', 0):,}")
+            click.echo(f"Total de tokens: {total.get('total_tokens', 0):,}")
+
+            # Média por requisição
+            avg = token_stats.get('average_tokens_per_request', {})
+            click.echo(f"\nMédia por requisição:")
+            click.echo(f"  - Entrada: {avg.get('prompt_tokens', 0):.1f}")
+            click.echo(f"  - Saída: {avg.get('completion_tokens', 0):.1f}")
+            click.echo(f"  - Total: {avg.get('total_tokens', 0):.1f}")
+
+            # Por operação
+            by_op = token_stats.get('by_operation', {})
+            if by_op:
+                click.echo(f"\nTokens por operação:")
+                for op, op_stats in by_op.items():
+                    op_total = op_stats.get('tokens_total', 0)
+                    op_count = op_stats.get('count', 0)
+                    click.echo(f"  - {op}: {op_total:,} tokens ({op_count} requisições)")
+
+            # Comparação TOON (se aplicável)
+            if procedure_analyzer and hasattr(procedure_analyzer, 'llm') and hasattr(procedure_analyzer.llm, 'token_tracker'):
+                toon_comparison = procedure_analyzer.llm.token_tracker.get_toon_comparison()
+            elif table_analyzer and hasattr(table_analyzer, 'llm') and hasattr(table_analyzer.llm, 'token_tracker'):
+                toon_comparison = table_analyzer.llm.token_tracker.get_toon_comparison()
+            else:
+                toon_comparison = None
+
+            if toon_comparison:
+                click.echo(f"\nCOMPARAÇÃO TOON:")
+                if toon_comparison.get('without_toon'):
+                    savings_pct = toon_comparison.get('overall_savings_percent', 0)
+                    savings_tokens = toon_comparison.get('overall_savings_tokens', 0)
+                    click.echo(f"  - Economia: {savings_pct:.1f}% ({savings_tokens:,} tokens)")
+                    click.echo(f"  - Com TOON: {toon_comparison['with_toon']['total_tokens']:,} tokens")
+                    click.echo(f"  - Sem TOON: {toon_comparison['without_toon']['total_tokens']:,} tokens")
+                else:
+                    click.echo(f"  - TOON foi usado em todas as requisições")
+                    click.echo(f"  - Total: {toon_comparison['with_toon']['total_tokens']:,} tokens")
+        else:
+            click.echo("Nenhuma métrica de tokens disponível (modo local ou métricas não coletadas)")
+
         click.echo("\n✅ Análise concluída!")
 
     except CodeGraphAIError as e:
@@ -630,6 +690,8 @@ def export(ctx, input, output_dir, format):
 
         # Resolve caminhos
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
+        format_subdir = "toon-format" if config.llm_use_toon else "json-format"
+        output_path = output_path / format_subdir
         output_path.mkdir(parents=True, exist_ok=True)
 
         # TODO: Implementar reconstrução do analyzer a partir do JSON
