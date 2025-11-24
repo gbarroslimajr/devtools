@@ -60,6 +60,12 @@ class DefaultConfig:
 
     # Logging
     LOG_LEVEL = 'INFO'
+    LOG_DIR = './logs'
+    AUTO_LOG_ENABLED = True  # Habilitar criação automática de logs
+
+    # Batch Processing e Paralelismo
+    BATCH_SIZE = 5  # Tamanho padrão do batch para análise de tabelas
+    MAX_PARALLEL_WORKERS = 2  # Número máximo de workers paralelos
 
 
 class Config:
@@ -190,6 +196,12 @@ class Config:
         # Logging
         self.log_level = os.getenv('CODEGRAPHAI_LOG_LEVEL', DefaultConfig.LOG_LEVEL)
         self.log_file = os.getenv('CODEGRAPHAI_LOG_FILE')  # Opcional
+        self.log_dir = os.getenv('CODEGRAPHAI_LOG_DIR', DefaultConfig.LOG_DIR)
+        self.auto_log_enabled = self._getenv_bool('CODEGRAPHAI_AUTO_LOG_ENABLED', DefaultConfig.AUTO_LOG_ENABLED)
+
+        # Batch Processing e Paralelismo
+        self.batch_size = self._getenv_int('CODEGRAPHAI_BATCH_SIZE', DefaultConfig.BATCH_SIZE)
+        self.max_parallel_workers = self._getenv_int('CODEGRAPHAI_MAX_PARALLEL_WORKERS', DefaultConfig.MAX_PARALLEL_WORKERS)
 
         # Criar mapeamento de providers para validação
         if self.llm_mode == 'api':

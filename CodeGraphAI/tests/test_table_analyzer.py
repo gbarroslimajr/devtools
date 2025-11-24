@@ -78,6 +78,8 @@ def mock_llm_analyzer():
     """Mock do LLMAnalyzer para testes"""
     mock = Mock(spec=LLMAnalyzer)
     mock.analyze_table_purpose.return_value = "Tabela de produtos do sistema"
+    # Adiciona método batch para testes
+    mock.analyze_table_purpose_batch = Mock(return_value={})
     return mock
 
 
@@ -257,4 +259,164 @@ class TestTableAnalyzer:
         assert "." not in name
         assert "-" not in name
         assert "_" in name
+
+    def test_analyze_business_purpose_batch(self, mock_llm_analyzer):
+        """Testa análise de propósito de negócio em batch"""
+        analyzer = TableAnalyzer(mock_llm_analyzer)
+
+        # Mock do método batch
+        mock_llm_analyzer.analyze_table_purpose_batch.return_value = {
+            "public.products": "Tabela de produtos do sistema",
+            "public.users": "Tabela de usuários do sistema"
+        }
+
+        # Cria dados de teste
+        table1 = TableInfo(
+            name="products",
+            schema="public",
+            ddl="CREATE TABLE products (...)",
+            columns=[ColumnInfo(name="id", data_type="INTEGER", nullable=False)],
+            indexes=[],
+            foreign_keys=[],
+            primary_key_columns=["id"]
+        )
+
+        table2 = TableInfo(
+            name="users",
+            schema="public",
+            ddl="CREATE TABLE users (...)",
+            columns=[ColumnInfo(name="id", data_type="INTEGER", nullable=False)],
+            indexes=[],
+            foreign_keys=[],
+            primary_key_columns=["id"]
+        )
+
+        tables_data = [
+            ("public.products", table1.ddl, ["id"]),
+            ("public.users", table2.ddl, ["id"])
+        ]
+        table_names = ["public.products", "public.users"]
+
+        result = analyzer._analyze_business_purpose_batch(tables_data, table_names)
+
+        assert "public.products" in result
+        assert "public.users" in result
+        assert result["public.products"] == "Tabela de produtos do sistema"
+        mock_llm_analyzer.analyze_table_purpose_batch.assert_called_once()
+
+    def test_process_batch(self, mock_llm_analyzer):
+        """Testa processamento de um batch de tabelas"""
+        analyzer = TableAnalyzer(mock_llm_analyzer)
+
+        # Mock do método batch
+        mock_llm_analyzer.analyze_table_purpose_batch.return_value = {
+            "public.products": "Tabela de produtos"
+        }
+
+        table1 = TableInfo(
+            name="products",
+            schema="public",
+            ddl="CREATE TABLE products (...)",
+            columns=[ColumnInfo(name="id", data_type="INTEGER", nullable=False)],
+            indexes=[],
+            foreign_keys=[],
+            primary_key_columns=["id"]
+        )
+
+        batch = [("public.products", table1)]
+        analyzer._process_batch(batch)
+
+        assert "public.products" in analyzer.tables
+        assert analyzer.tables["public.products"].business_purpose == "Tabela de produtos"
+        assert analyzer.tables["public.products"].complexity_score > 0
+
+    def test_fallback_to_sequential_on_error(self, mock_llm_analyzer):
+        """Testa fallback para método sequencial quando batch falha"""
+        analyzer = TableAnalyzer(mock_llm_analyzer)
+
+        # Mock: batch falha, mas método individual funciona
+        from app.core.models import LLMAnalysisError
+        mock_llm_analyzer.analyze_table_purpose_batch.side_effect = LLMAnalysisError("Erro no batch")
+        mock_llm_analyzer.analyze_table_purpose.return_value = "Tabela de produtos (fallback)"
+
+        table1 = TableInfo(
+            name="products",
+            schema="public",
+            ddl="CREATE TABLE products (...)",
+            columns=[ColumnInfo(name="id", data_type="INTEGER", nullable=False)],
+            indexes=[],
+            foreign_keys=[],
+            primary_key_columns=["id"]
+        )
+
+        batch = [("public.products", table1)]
+        analyzer._process_batch(batch)
+
+        # Deve ter usado fallback sequencial
+        assert "public.products" in analyzer.tables
+        assert "fallback" in analyzer.tables["public.products"].business_purpose.lower()
+        mock_llm_analyzer.analyze_table_purpose.assert_called()
+
+    def test_analyze_sequential_mode(self, mock_llm_analyzer):
+        """Testa que batch_size=1 usa modo sequencial"""
+        analyzer = TableAnalyzer(mock_llm_analyzer)
+
+        table1 = TableInfo(
+            name="products",
+            schema="public",
+            ddl="CREATE TABLE products (...)",
+            columns=[ColumnInfo(name="id", data_type="INTEGER", nullable=False)],
+            indexes=[],
+            foreign_keys=[],
+            primary_key_columns=["id"]
+        )
+
+        tables_db = {"public.products": table1}
+        analyzer._analyze_sequential(tables_db, show_progress=False)
+
+        assert "public.products" in analyzer.tables
+        mock_llm_analyzer.analyze_table_purpose.assert_called_once()
+
+    def test_analyze_with_batch_sequential_batches(self, mock_llm_analyzer):
+        """Testa análise com batch processing sequencial (sem paralelismo)"""
+        analyzer = TableAnalyzer(mock_llm_analyzer)
+
+        # Mock do método batch
+        mock_llm_analyzer.analyze_table_purpose_batch.return_value = {
+            "public.products": "Tabela de produtos",
+            "public.users": "Tabela de usuários"
+        }
+
+        table1 = TableInfo(
+            name="products",
+            schema="public",
+            ddl="CREATE TABLE products (...)",
+            columns=[ColumnInfo(name="id", data_type="INTEGER", nullable=False)],
+            indexes=[],
+            foreign_keys=[],
+            primary_key_columns=["id"]
+        )
+
+        table2 = TableInfo(
+            name="users",
+            schema="public",
+            ddl="CREATE TABLE users (...)",
+            columns=[ColumnInfo(name="id", data_type="INTEGER", nullable=False)],
+            indexes=[],
+            foreign_keys=[],
+            primary_key_columns=["id"]
+        )
+
+        tables_db = {
+            "public.products": table1,
+            "public.users": table2
+        }
+
+        # Processa com batch_size=2, parallel_workers=1 (sequencial)
+        analyzer._analyze_with_batch(tables_db, batch_size=2, parallel_workers=1, show_progress=False)
+
+        assert len(analyzer.tables) == 2
+        assert "public.products" in analyzer.tables
+        assert "public.users" in analyzer.tables
+        mock_llm_analyzer.analyze_table_purpose_batch.assert_called()
 

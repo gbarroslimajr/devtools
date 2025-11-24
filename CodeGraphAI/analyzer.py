@@ -503,6 +503,29 @@ Forneça uma descrição clara do propósito desta tabela no contexto do negóci
 Resposta:"""
         )
 
+        # Análise de propósito de tabela em batch
+        self.table_purpose_batch_prompt = PromptTemplate(
+            input_variables=["tables_data"],
+            template="""Analise as seguintes tabelas de banco de dados e descreva o propósito de negócio de cada uma em português.
+
+Tabelas:
+{tables_data}
+
+Para cada tabela, forneça uma descrição clara do propósito no contexto do negócio, incluindo:
+1. Qual entidade ou conceito do negócio esta tabela representa
+2. Qual o papel principal desta tabela no sistema
+3. Principais relacionamentos sugeridos pelas foreign keys
+
+Retorne um JSON com o formato:
+{{
+  "table_name_1": "descrição do propósito",
+  "table_name_2": "descrição do propósito",
+  ...
+}}
+
+Resposta (apenas JSON):"""
+        )
+
     def analyze_business_logic(self, code: str, proc_name: str) -> str:
         """
         Analisa lógica de negócio usando LLM
@@ -749,6 +772,102 @@ Resposta:"""
         except Exception as e:
             logger.error(f"Erro ao analisar propósito da tabela {table_name}: {e}")
             raise LLMAnalysisError(f"Erro ao analisar propósito da tabela: {e}")
+
+    def analyze_table_purpose_batch(
+        self,
+        tables_data: List[Tuple[str, str, List[str]]]
+    ) -> Dict[str, str]:
+        """
+        Analisa propósito de negócio de múltiplas tabelas em uma única requisição LLM
+
+        Args:
+            tables_data: Lista de tuplas (table_name, ddl, columns_list)
+
+        Returns:
+            Dict com table_name -> business_purpose
+
+        Raises:
+            LLMAnalysisError: Se houver erro na análise
+        """
+        if not tables_data:
+            return {}
+
+        try:
+            # Definir operação para tracking de tokens
+            use_toon = getattr(self.config, 'llm_use_toon', False) and TOON_AVAILABLE
+            self.token_callback.set_operation("analyze_table_purpose_batch", use_toon=use_toon)
+
+            # Constrói prompt com todas as tabelas
+            max_ddl_length = 2000
+            tables_text = []
+            table_names = []
+
+            for table_name, ddl, columns in tables_data:
+                table_names.append(table_name)
+                truncated_ddl = ddl[:max_ddl_length] if len(ddl) > max_ddl_length else ddl
+                columns_str = ', '.join(columns[:20])  # Limita a 20 colunas por tabela
+
+                table_section = f"""
+Tabela: {table_name}
+Colunas: {columns_str}
+DDL:
+{truncated_ddl}
+"""
+                tables_text.append(table_section)
+
+            tables_data_str = "\n---\n".join(tables_text)
+
+            # Chama LLM
+            chain = self.table_purpose_batch_prompt | self.llm
+            result = chain.invoke(
+                {"tables_data": tables_data_str},
+                config={"callbacks": [self.token_callback]}
+            )
+
+            # Extrai content se necessário
+            if hasattr(result, 'content'):
+                result_text = result.content.strip()
+            else:
+                result_text = str(result).strip()
+
+            # Tenta parsear JSON
+            try:
+                # Remove markdown code blocks se houver
+                if result_text.startswith('```'):
+                    # Remove primeiro ``` e último ```
+                    lines = result_text.split('\n')
+                    if lines[0].startswith('```'):
+                        lines = lines[1:]
+                    if lines[-1].strip() == '```':
+                        lines = lines[:-1]
+                    result_text = '\n'.join(lines)
+
+                # Parse JSON
+                parsed = json.loads(result_text)
+                if isinstance(parsed, dict):
+                    # Valida que todas as tabelas estão presentes
+                    result_dict = {}
+                    for table_name in table_names:
+                        if table_name in parsed:
+                            result_dict[table_name] = str(parsed[table_name]).strip()
+                        else:
+                            logger.warning(f"Tabela {table_name} não encontrada na resposta do LLM")
+                            result_dict[table_name] = f"Tabela {table_name} com propósito não identificado"
+                    return result_dict
+                else:
+                    raise ValueError("Resposta do LLM não é um dicionário JSON válido")
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"Erro ao parsear resposta JSON do batch: {e}")
+                logger.debug(f"Resposta recebida: {result_text[:500]}")
+                # Fallback: retorna dict vazio para indicar falha
+                # O chamador deve fazer fallback para processamento individual
+                raise LLMAnalysisError(f"Erro ao parsear resposta JSON do batch: {e}")
+
+        except LLMAnalysisError:
+            raise
+        except Exception as e:
+            logger.error(f"Erro ao analisar propósito das tabelas em batch: {e}")
+            raise LLMAnalysisError(f"Erro ao analisar propósito das tabelas em batch: {e}")
 
     def get_token_statistics(self) -> Dict[str, Any]:
         """

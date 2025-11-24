@@ -5,10 +5,11 @@ Extrai, analisa e mapeia relacionamentos entre tabelas
 
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import asdict
 from collections import defaultdict
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -43,6 +44,10 @@ class TableAnalysisConfig:
     GRAPH_FONT_SIZE = 8
     GRAPH_DPI = 300
 
+    # Batch Processing e Paralelismo
+    DEFAULT_BATCH_SIZE = 5
+    DEFAULT_MAX_PARALLEL_WORKERS = 2
+
 
 class TableAnalyzer:
     """Orquestra análise completa de tabelas"""
@@ -68,7 +73,9 @@ class TableAnalyzer:
         show_progress: bool = True,
         db_type: Optional[str] = None,
         database: Optional[str] = None,
-        port: Optional[int] = None
+        port: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        parallel_workers: Optional[int] = None
     ) -> None:
         """
         Analisa tabelas diretamente do banco de dados
@@ -84,6 +91,8 @@ class TableAnalyzer:
                     Se None, assume PostgreSQL
             database: Nome do banco de dados (obrigatório para PostgreSQL, SQL Server, MySQL)
             port: Porta do banco de dados
+            batch_size: Tamanho do batch para análise (padrão: 5, None usa config)
+            parallel_workers: Número de workers paralelos (padrão: 2, None usa config, 1 desabilita)
 
         Raises:
             TableLoadError: Se houver erro ao carregar do banco
@@ -128,7 +137,31 @@ class TableAnalyzer:
 
         logger.info(f"Iniciando análise de {len(tables_db)} tabelas...")
 
-        # Usa tqdm para progress bar se solicitado
+        # Determina batch_size e parallel_workers
+        effective_batch_size = batch_size if batch_size is not None else TableAnalysisConfig.DEFAULT_BATCH_SIZE
+        effective_parallel_workers = parallel_workers if parallel_workers is not None else TableAnalysisConfig.DEFAULT_MAX_PARALLEL_WORKERS
+
+        # Se batch_size = 1, usa processamento sequencial (comportamento original)
+        if effective_batch_size <= 1:
+            self._analyze_sequential(tables_db, show_progress)
+        else:
+            # Usa batch processing
+            self._analyze_with_batch(tables_db, effective_batch_size, effective_parallel_workers, show_progress)
+
+        # Constrói grafo de relacionamentos
+        logger.info("Construindo grafo de relacionamentos...")
+        self._build_relationship_graph()
+
+        logger.info("Análise concluída!")
+
+    def _analyze_sequential(self, tables_db: Dict[str, TableInfo], show_progress: bool) -> None:
+        """
+        Analisa tabelas sequencialmente (método original)
+
+        Args:
+            tables_db: Dict com tabelas a analisar
+            show_progress: Mostrar barra de progresso
+        """
         iterator = tqdm(tables_db.items(), desc="Analisando tabelas",
                        total=len(tables_db), disable=not show_progress) if show_progress else tables_db.items()
 
@@ -150,11 +183,193 @@ class TableAnalyzer:
                 logger.error(f"Erro ao analisar {table_name}: {e}")
                 # Continua com outras tabelas mesmo se uma falhar
 
-        # Constrói grafo de relacionamentos
-        logger.info("Construindo grafo de relacionamentos...")
-        self._build_relationship_graph()
+    def _analyze_with_batch(
+        self,
+        tables_db: Dict[str, TableInfo],
+        batch_size: int,
+        parallel_workers: int,
+        show_progress: bool
+    ) -> None:
+        """
+        Analisa tabelas usando batch processing com processamento paralelo opcional
 
-        logger.info("Análise concluída!")
+        Args:
+            tables_db: Dict com tabelas a analisar
+            batch_size: Tamanho do batch
+            parallel_workers: Número de workers paralelos (1 = sequencial)
+            show_progress: Mostrar barra de progresso
+        """
+        tables_list = list(tables_db.items())
+        total_tables = len(tables_list)
+
+        # Agrupa em batches
+        batches = [
+            tables_list[i:i+batch_size]
+            for i in range(0, total_tables, batch_size)
+        ]
+
+        logger.info(f"Processando {total_tables} tabelas em {len(batches)} batches (tamanho: {batch_size})")
+
+        if parallel_workers > 1:
+            # Processamento paralelo
+            self._process_batches_parallel(batches, parallel_workers, show_progress)
+        else:
+            # Processamento sequencial de batches
+            batch_iterator = tqdm(batches, desc="Processando batches",
+                                 total=len(batches), disable=not show_progress) if show_progress else batches
+            for batch in batch_iterator:
+                if show_progress and hasattr(batch_iterator, 'set_postfix'):
+                    batch_iterator.set_postfix({"batch": f"{len(batch)} tabelas"})
+                self._process_batch(batch)
+
+    def _process_batches_parallel(
+        self,
+        batches: List[List[Tuple[str, TableInfo]]],
+        max_workers: int,
+        show_progress: bool
+    ) -> None:
+        """
+        Processa batches em paralelo usando ThreadPoolExecutor
+
+        Args:
+            batches: Lista de batches para processar
+            max_workers: Número máximo de workers
+            show_progress: Mostrar progresso
+        """
+        total_batches = len(batches)
+        logger.info(f"Processando {total_batches} batches em paralelo com {max_workers} workers")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submete todos os batches
+            future_to_batch = {
+                executor.submit(self._process_batch, batch): batch
+                for batch in batches
+            }
+
+            # Progress bar para batches paralelos
+            if show_progress:
+                progress_bar = tqdm(total=total_batches, desc="Processando batches (paralelo)")
+
+            # Processa resultados conforme completam
+            completed = 0
+            for future in as_completed(future_to_batch):
+                batch = future_to_batch[future]
+                try:
+                    future.result()  # Aguarda conclusão e trata erros
+                    completed += 1
+                    if show_progress:
+                        progress_bar.update(1)
+                        progress_bar.set_postfix({"completos": f"{completed}/{total_batches}"})
+                except Exception as e:
+                    logger.error(f"Erro ao processar batch: {e}")
+                    # Continua processando outros batches
+                    if show_progress:
+                        progress_bar.update(1)
+
+            if show_progress:
+                progress_bar.close()
+
+    def _process_batch(self, batch: List[Tuple[str, TableInfo]]) -> None:
+        """
+        Processa um batch de tabelas
+
+        Args:
+            batch: Lista de tuplas (table_name, table_info)
+        """
+        try:
+            # Prepara dados para batch processing
+            tables_data = []
+            table_names = []
+
+            for table_name, table_info in batch:
+                columns_list = [col.name for col in table_info.columns]
+                tables_data.append((
+                    f"{table_info.schema}.{table_info.name}",
+                    table_info.ddl,
+                    columns_list
+                ))
+                table_names.append(table_name)
+
+            # Chama LLM batch
+            try:
+                purposes = self._analyze_business_purpose_batch(tables_data, table_names)
+            except Exception as e:
+                logger.warning(f"Erro no batch processing, usando fallback sequencial: {e}")
+                # Fallback: processa individualmente
+                purposes = {}
+                for table_name, table_info in batch:
+                    try:
+                        columns_list = [col.name for col in table_info.columns]
+                        purpose = self._analyze_business_purpose(table_info, columns_list)
+                        purposes[table_name] = purpose
+                    except Exception as e2:
+                        logger.error(f"Erro ao analisar {table_name} (fallback): {e2}")
+                        purposes[table_name] = f"Tabela {table_info.name} com {len(table_info.columns)} colunas"
+
+            # Atualiza tabelas com resultados
+            for table_name, table_info in batch:
+                full_name = f"{table_info.schema}.{table_info.name}"
+                if table_name in purposes:
+                    table_info.business_purpose = purposes[table_name]
+                elif full_name in purposes:
+                    table_info.business_purpose = purposes[full_name]
+                else:
+                    logger.warning(f"Propósito não encontrado para {table_name}, usando fallback")
+                    table_info.business_purpose = f"Tabela {table_info.name} com {len(table_info.columns)} colunas"
+
+                # Calcula complexidade
+                table_info.complexity_score = self._calculate_complexity(table_info)
+
+                # Adiciona ao dict de tabelas
+                self.tables[table_name] = table_info
+
+        except Exception as e:
+            logger.error(f"Erro ao processar batch: {e}")
+            # Em caso de erro, tenta processar individualmente
+            for table_name, table_info in batch:
+                try:
+                    columns_list = [col.name for col in table_info.columns]
+                    table_info.business_purpose = self._analyze_business_purpose(table_info, columns_list)
+                    table_info.complexity_score = self._calculate_complexity(table_info)
+                    self.tables[table_name] = table_info
+                except Exception as e2:
+                    logger.error(f"Erro ao analisar {table_name} (fallback individual): {e2}")
+
+    def _analyze_business_purpose_batch(
+        self,
+        tables_data: List[Tuple[str, str, List[str]]],
+        table_names: List[str]
+    ) -> Dict[str, str]:
+        """
+        Usa LLM para entender o propósito de múltiplas tabelas em batch
+
+        Args:
+            tables_data: Lista de tuplas (table_name, ddl, columns_list)
+            table_names: Lista de nomes originais das tabelas (para mapeamento)
+
+        Returns:
+            Dict com table_name -> business_purpose
+        """
+        try:
+            result = self.llm.analyze_table_purpose_batch(tables_data)
+            # Mapeia resultados usando nomes originais
+            mapped_result = {}
+            for i, table_name in enumerate(table_names):
+                full_name = tables_data[i][0]  # Nome completo usado no LLM
+                if full_name in result:
+                    mapped_result[table_name] = result[full_name]
+                elif table_name in result:
+                    mapped_result[table_name] = result[table_name]
+                else:
+                    # Tenta encontrar por partes do nome
+                    for key, value in result.items():
+                        if table_name in key or key in table_name:
+                            mapped_result[table_name] = value
+                            break
+            return mapped_result
+        except LLMAnalysisError as e:
+            logger.warning(f"Erro na análise LLM batch: {e}")
+            raise
 
     def _analyze_business_purpose(self, table_info: TableInfo, columns_list: List[str]) -> str:
         """

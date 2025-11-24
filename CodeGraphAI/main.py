@@ -6,6 +6,8 @@ import logging
 import sys
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
+from contextlib import contextmanager
 
 import click
 from tqdm import tqdm
@@ -18,38 +20,196 @@ from app.io.factory import create_loader
 from config import get_config
 
 
-def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> None:
+class TeeFileHandler(logging.Handler):
+    """Handler que escreve em arquivo e também em stdout simultaneamente"""
+
+    def __init__(self, file_path: Path):
+        super().__init__()
+        self.file_path = file_path
+        self.file = None
+        self.stdout = sys.stdout
+        # Abre arquivo imediatamente
+        try:
+            self.file = open(self.file_path, 'a', encoding='utf-8')
+        except Exception as e:
+            # Se não conseguir abrir, continua sem arquivo
+            logging.getLogger(__name__).warning(f"Erro ao abrir arquivo de log: {e}")
+            self.file = None
+
+    def close(self):
+        """Fecha o arquivo quando handler é fechado"""
+        if self.file:
+            try:
+                self.file.close()
+            except Exception:
+                pass
+            self.file = None
+        super().close()
+
+    def emit(self, record):
+        """Escreve log em arquivo e stdout"""
+        try:
+            msg = self.format(record) + '\n'
+            if self.file:
+                try:
+                    self.file.write(msg)
+                    self.file.flush()
+                except Exception:
+                    # Se falhar ao escrever no arquivo, continua apenas com stdout
+                    pass
+            self.stdout.write(msg)
+            self.stdout.flush()
+        except Exception:
+            self.handleError(record)
+
+
+def generate_log_filename(command_name: str, log_dir: Path) -> Path:
     """
-    Configura logging
+    Gera nome de arquivo de log com timestamp e comando
+
+    Args:
+        command_name: Nome do comando executado
+        log_dir: Diretório onde salvar o log
+
+    Returns:
+        Path completo do arquivo de log
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Normaliza nome do comando (remove hífens, substitui por underscore)
+    safe_command = command_name.replace('-', '_')
+    filename = f"{safe_command}_{timestamp}.log"
+    return log_dir / filename
+
+
+def setup_logging(
+    log_level: str = "INFO",
+    log_file: Optional[str] = None,
+    auto_log: bool = False,
+    command_name: Optional[str] = None,
+    log_dir: Optional[str] = None
+) -> Optional[Path]:
+    """
+    Configura logging com suporte a auto-logging
 
     Args:
         log_level: Nível de logging (DEBUG, INFO, WARNING, ERROR)
-        log_file: Arquivo de log (opcional)
+        log_file: Arquivo de log (opcional, sobrescreve auto-logging)
+        auto_log: Se True, cria arquivo de log automaticamente
+        command_name: Nome do comando (para auto-logging)
+        log_dir: Diretório para logs (para auto-logging)
+
+    Returns:
+        Path do arquivo de log criado (se houver), None caso contrário
     """
-    handlers = [logging.StreamHandler(sys.stdout)]
+    handlers = []
+    log_file_path = None
 
+    # Determina arquivo de log
     if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        handlers.append(logging.FileHandler(log_file))
+        # Usuário forneceu arquivo explicitamente
+        log_file_path = Path(log_file)
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
+    elif auto_log and command_name and log_dir:
+        # Auto-logging habilitado
+        try:
+            log_dir_path = Path(log_dir)
+            log_dir_path.mkdir(parents=True, exist_ok=True)
+            log_file_path = generate_log_filename(command_name, log_dir_path)
+            logging.getLogger(__name__).info(f"Log será salvo em: {log_file_path}")
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Erro ao criar arquivo de log automático: {e}")
+            log_file_path = None
 
+    # Configura handlers
+    if log_file_path:
+        # Usa TeeFileHandler para escrever em arquivo e stdout
+        try:
+            tee_handler = TeeFileHandler(log_file_path)
+            handlers.append(tee_handler)
+        except Exception as e:
+            # Se falhar, usa apenas console
+            logging.getLogger(__name__).warning(f"Erro ao criar handler de arquivo: {e}, usando apenas console")
+            handlers.append(logging.StreamHandler(sys.stdout))
+    else:
+        # Apenas console
+        handlers.append(logging.StreamHandler(sys.stdout))
+
+    # Configura logging
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=handlers
+        handlers=handlers,
+        force=True  # Força reconfiguração se já foi configurado
     )
 
+    return log_file_path
 
-@click.group()
+
+def echo_with_log(message: str, **kwargs):
+    """
+    Wrapper para click.echo que também escreve no log
+
+    Args:
+        message: Mensagem a exibir
+        **kwargs: Argumentos adicionais para click.echo
+    """
+    click.echo(message, **kwargs)
+    # Também loga a mensagem (sem emojis para logs mais limpos)
+    logger = logging.getLogger(__name__)
+    # Remove emojis e caracteres especiais para log mais limpo
+    clean_message = message
+    # Loga como INFO se não for erro
+    if kwargs.get('err', False):
+        logger.error(clean_message)
+    else:
+        logger.info(clean_message)
+
+
+@click.group(invoke_without_command=True)
 @click.option('--verbose', '-v', is_flag=True, help='Modo verbose (DEBUG)')
-@click.option('--log-file', type=click.Path(), help='Arquivo de log')
+@click.option('--log-file', type=click.Path(), help='Arquivo de log (sobrescreve auto-logging)')
+@click.option('--no-auto-log', is_flag=True, default=False, help='Desabilita criação automática de logs')
 @click.pass_context
-def cli(ctx, verbose, log_file):
+def cli(ctx, verbose, log_file, no_auto_log):
     """CodeGraphAI - Análise inteligente de procedures de banco de dados"""
-    log_level = "DEBUG" if verbose else "INFO"
-    setup_logging(log_level, log_file)
     ctx.ensure_object(dict)
-    ctx.obj['config'] = get_config()
+    config = get_config()
+    ctx.obj['config'] = config
+
+    # Detecta comando sendo executado
+    command_name = None
+    if ctx.invoked_subcommand:
+        command_name = ctx.invoked_subcommand
+    else:
+        # Se não há subcomando, usa 'cli' como nome
+        command_name = 'cli'
+
+    # Determina se deve usar auto-logging
+    use_auto_log = False
+    if not log_file and not no_auto_log and config.auto_log_enabled:
+        use_auto_log = True
+
+    # Configura logging
+    log_level = "DEBUG" if verbose else config.log_level
+    log_file_path = setup_logging(
+        log_level=log_level,
+        log_file=log_file,
+        auto_log=use_auto_log,
+        command_name=command_name,
+        log_dir=config.log_dir
+    )
+
+    # Armazena path do log no contexto para uso posterior
+    ctx.obj['log_file_path'] = log_file_path
+
+    # Se log foi criado, informa ao usuário
+    if log_file_path:
+        logger = logging.getLogger(__name__)
+        logger.info(f"Log de execução salvo em: {log_file_path}")
+
+    # Se não há subcomando, mostra help
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @cli.command()
@@ -244,10 +404,12 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
 @click.option('--export-json', is_flag=True, default=True, help='Exportar JSON (padrão: True)')
 @click.option('--export-png', is_flag=True, default=True, help='Exportar grafo PNG (padrão: True)')
 @click.option('--export-mermaid', is_flag=True, default=False, help='Exportar diagramas Mermaid')
+@click.option('--batch-size', type=int, default=None, help='Tamanho do batch para análise de tabelas (padrão: 5, 1 desabilita batch)')
+@click.option('--parallel-workers', type=int, default=None, help='Número de workers paralelos para análise de tabelas (padrão: 2, 1 desabilita paralelismo)')
 @click.option('--dry-run', is_flag=True, default=False, help='Modo dry-run: valida sem executar')
 @click.pass_context
 def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, database, schema, limit,
-           output_dir, model, device, export_json, export_png, export_mermaid, dry_run):
+           output_dir, model, device, export_json, export_png, export_mermaid, batch_size, parallel_workers, dry_run):
     """Analisa tabelas e/ou procedures do banco de dados"""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
@@ -426,9 +588,19 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
                 click.echo("=" * 60)
                 table_analyzer = TableAnalyzer(llm)
                 click.echo(f"Conectando ao banco {db_type.upper()} ({connection_host})...")
+
+                # Usa valores do config se não fornecidos via CLI
+                effective_batch_size = batch_size if batch_size is not None else config.batch_size
+                effective_parallel_workers = parallel_workers if parallel_workers is not None else config.max_parallel_workers
+
+                if effective_batch_size and effective_batch_size > 1:
+                    click.echo(f"Usando batch processing (tamanho: {effective_batch_size}, workers: {effective_parallel_workers})")
+
                 table_analyzer.analyze_from_database(
                     user, password, connection_host, schema, limit,
-                    db_type=db_type, database=database, port=port
+                    db_type=db_type, database=database, port=port,
+                    batch_size=effective_batch_size,
+                    parallel_workers=effective_parallel_workers
                 )
 
                 # Exporta resultados de tabelas
