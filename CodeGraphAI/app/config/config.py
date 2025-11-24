@@ -74,6 +74,11 @@ class DefaultConfig:
     BATCH_SIZE = 5  # Tamanho padrão do batch para análise de tabelas
     MAX_PARALLEL_WORKERS = 2  # Número máximo de workers paralelos
 
+    # Vector Store / Embeddings
+    EMBEDDING_BACKEND = 'sentence-transformers'  # Backend de embedding
+    EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2'  # Modelo de embedding
+    VECTOR_STORE_PATH = './cache/vector_store'  # Caminho do vector store
+
 
 class Config:
     """
@@ -266,6 +271,11 @@ class Config:
         # Batch Processing e Paralelismo
         self.batch_size = self._getenv_int('CODEGRAPHAI_BATCH_SIZE', DefaultConfig.BATCH_SIZE)
         self.max_parallel_workers = self._getenv_int('CODEGRAPHAI_MAX_PARALLEL_WORKERS', DefaultConfig.MAX_PARALLEL_WORKERS)
+
+        # Vector Store / Embeddings
+        self.embedding_backend = os.getenv('CODEGRAPHAI_EMBEDDING_BACKEND', DefaultConfig.EMBEDDING_BACKEND)
+        self.embedding_model = os.getenv('CODEGRAPHAI_EMBEDDING_MODEL', DefaultConfig.EMBEDDING_MODEL)
+        self.vector_store_path = os.getenv('CODEGRAPHAI_VECTOR_STORE_PATH', DefaultConfig.VECTOR_STORE_PATH)
 
         # Criar mapeamento de providers para validação
         if self.llm_mode == 'api':

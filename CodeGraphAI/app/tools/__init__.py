@@ -10,6 +10,7 @@ _knowledge_graph = None
 _crawler = None
 _db_config = None
 _on_demand_analyzer = None
+_vector_kg = None
 
 
 def init_tools(
@@ -19,7 +20,8 @@ def init_tools(
     on_demand_analyzer: Optional[Any] = None,
     config: Optional[Any] = None,
     llm_analyzer: Optional[Any] = None,
-    procedures_dir: Optional[str] = None
+    procedures_dir: Optional[str] = None,
+    vector_kg: Optional[Any] = None
 ) -> None:
     """
     Initialize tools with dependencies
@@ -32,11 +34,13 @@ def init_tools(
         config: Application config (optional, required to create OnDemandAnalyzer)
         llm_analyzer: LLMAnalyzer instance (optional, required to create OnDemandAnalyzer)
         procedures_dir: Directory with .prc files (optional, for OnDemandAnalyzer)
+        vector_kg: VectorKnowledgeGraph instance (optional, for semantic search)
     """
-    global _knowledge_graph, _crawler, _db_config, _on_demand_analyzer
+    global _knowledge_graph, _crawler, _db_config, _on_demand_analyzer, _vector_kg
     _knowledge_graph = knowledge_graph
     _crawler = crawler
     _db_config = db_config
+    _vector_kg = vector_kg
 
     # Create OnDemandAnalyzer if not provided
     if on_demand_analyzer:
@@ -80,6 +84,14 @@ def init_tools(
         # query_tools might not be available, ignore
         pass
 
+    # Update vector_tools if available
+    try:
+        import app.tools.vector_tools as vt
+        vt._vector_kg = _vector_kg
+    except ImportError:
+        # vector_tools might not be available, ignore
+        pass
+
 
 def get_all_tools() -> List:
     """
@@ -111,6 +123,19 @@ def get_all_tools() -> List:
     except ImportError:
         # query_tools might not be available, skip
         pass
+
+    # Add vector tools if available and vector_kg is initialized
+    if _vector_kg is not None:
+        try:
+            from app.tools.vector_tools import semantic_search_tables, semantic_search_procedures, hybrid_search
+            tools.extend([
+                semantic_search_tables,
+                semantic_search_procedures,
+                hybrid_search
+            ])
+        except ImportError:
+            # vector_tools might not be available, skip
+            pass
 
     return tools
 

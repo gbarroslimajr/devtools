@@ -4,6 +4,10 @@ CLI para CodeGraphAI usando Click
 
 import logging
 import sys
+import os
+# Configurar tokenizers antes de qualquer importação que use HuggingFace
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -954,6 +958,31 @@ def query(ctx, question, verbose, max_iterations, cache_path,
         # Initialize crawler
         crawler = CodeCrawler(knowledge_graph)
 
+        # Initialize Vector Knowledge Graph (for semantic search)
+        vector_kg = None
+        try:
+            from app.graph.vector_knowledge_graph import VectorKnowledgeGraph
+
+            click.echo("Inicializando vector knowledge graph...")
+            vector_store_path = Path(config.vector_store_path) if hasattr(config, 'vector_store_path') else None
+            vector_kg = VectorKnowledgeGraph(
+                knowledge_graph=knowledge_graph,
+                embedding_backend=config.embedding_backend if hasattr(config, 'embedding_backend') else 'sentence-transformers',
+                embedding_model=config.embedding_model if hasattr(config, 'embedding_model') else None,
+                vector_store_path=vector_store_path,
+                batch_size=32
+            )
+            vkg_stats = vector_kg.get_statistics()
+            click.echo(f"✓ Vector store: {vkg_stats.get('indexed_nodes', 0)} nós indexados")
+        except ImportError as e:
+            click.echo(f"⚠️  Vector knowledge graph não disponível: {e}", err=True)
+            click.echo("   Instale dependências: pip install sentence-transformers chromadb")
+            click.echo("   Busca semântica não estará disponível, mas busca exata continuará funcionando.")
+        except Exception as e:
+            click.echo(f"⚠️  Erro ao inicializar vector knowledge graph: {e}", err=True)
+            click.echo("   Busca semântica não estará disponível, mas busca exata continuará funcionando.")
+            logger.warning(f"Vector KG initialization failed: {e}", exc_info=True)
+
         # Create DatabaseConfig - use CLI params if provided, otherwise use config from environment.env
         db_config = None
 
@@ -1015,7 +1044,12 @@ def query(ctx, question, verbose, max_iterations, cache_path,
 
         # Initialize tools
         click.echo("Inicializando tools...")
-        init_tools(knowledge_graph, crawler, db_config=db_config)
+        init_tools(
+            knowledge_graph=knowledge_graph,
+            crawler=crawler,
+            db_config=db_config,
+            vector_kg=vector_kg
+        )
         tools = get_all_tools()
         click.echo(f"✓ {len(tools)} tools disponíveis")
 

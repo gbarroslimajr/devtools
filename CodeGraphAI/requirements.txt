@@ -1,5 +1,11 @@
 # CodeGraphAI - Dependências Principais
-# Python 3.8+
+# Python 3.9+ (recomendado) ou 3.8+ (mínimo)
+#
+# Nota: Algumas dependências podem ter requisitos específicos:
+# - sentence-transformers>=2.2.0: Python 3.8+
+# - chromadb>=0.4.0: Python 3.8+ (3.9+ recomendado)
+# - langchain>=1.0.0: Python 3.8+
+# - torch>=2.0.0: Python 3.8+
 
 # Bancos de Dados (Opcional - instale apenas os necessários)
 # Oracle
@@ -62,4 +68,8 @@ langchain-anthropic>=0.1.0
 
 # TOON (Token-Oriented Object Notation) para otimização de tokens em LLMs
 toon-python @ git+https://github.com/toon-format/toon-python.git
+
+# Vector Store e Embeddings - Para busca semântica no knowledge graph
+sentence-transformers>=2.2.0
+chromadb>=0.4.0
 
