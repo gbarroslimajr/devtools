@@ -427,7 +427,7 @@ print(config.openai['model'] if config.openai else 'N/A')
 
 **Localização:** `app/llm/genfactory_client.py`
 
-**Descrição:** Cliente HTTP para API GenFactory (BNP Paribas).
+**Descrição:** Cliente HTTP para API GenFactory.
 
 **Construtor:**
 ```python
@@ -580,7 +580,7 @@ llm = LLMAnalyzer(config=config)
 
 | Provider | Modelos | Melhor Para | Requisitos |
 |----------|---------|-------------|------------|
-| **GenFactory** | Llama 70B, Codestral, GPT-OSS-120B | Ambientes corporativos BNP | Token de autorização, certificados SSL |
+| **GenFactory** | Llama 70B, Codestral, GPT-OSS-120B | Ambientes corporativos | Token de autorização, certificados SSL |
 | **OpenAI** | gpt-5.1, gpt-5-mini, gpt-5-nano | Análises rápidas e escaláveis | API key OpenAI |
 | **Anthropic** | Claude Sonnet 4.5 | Análises complexas e raciocínio profundo | API key Anthropic |
 

@@ -584,7 +584,7 @@ llm = LLMAnalyzer(model_name="/path/to/local/model", device="cuda")
 llm = LLMAnalyzer(model_name="gpt-oss-120b", device="cpu")
 ```
 
-#### Modo API (GenFactory - BNP Paribas)
+#### Modo API (GenFactory)
 
 CodeGraphAI suporta LLM via API GenFactory, permitindo usar modelos remotos sem necessidade de GPU local.
 
