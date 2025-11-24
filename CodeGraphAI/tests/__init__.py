@@ -1,4 +1,3 @@
 """
-Testes para CodeGraphAI
+Tests for CodeGraphAI
 """
-
