@@ -880,6 +880,115 @@ def export(ctx, input, output_dir, format):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument('question')
+@click.option('--verbose/--no-verbose', default=False, help='Mostrar execução detalhada do agent')
+@click.option('--max-iterations', type=int, default=15, help='Número máximo de iterações do agent')
+@click.option('--cache-path', default='./cache/knowledge_graph.json', help='Caminho do cache do knowledge graph')
+@click.pass_context
+def query(ctx, question, verbose, max_iterations, cache_path):
+    """
+    Faz query inteligente usando agent com tools
+
+    Exemplos:
+
+    \b
+    python main.py query "O que faz a procedure PROCESSAR_PEDIDO?"
+    python main.py query "Analise o campo status da procedure VALIDAR_USUARIO"
+    python main.py query "Quem chama a procedure CALCULAR_SALDO?"
+    """
+    try:
+        # Import tools and agent
+        from app.graph.knowledge_graph import CodeKnowledgeGraph
+        from app.analysis.code_crawler import CodeCrawler
+        from app.tools import init_tools, get_all_tools
+        from app.agents.code_analysis_agent import CodeAnalysisAgent
+        from analyzer import LLMAnalyzer
+        from app.config.config import get_config
+
+        click.echo("=" * 60)
+        click.echo("CODE ANALYSIS AGENT - Query Mode")
+        click.echo("=" * 60)
+
+        # Check if cache exists
+        cache_file = Path(cache_path)
+        if not cache_file.exists():
+            click.echo(f"⚠️  Cache não encontrado: {cache_path}")
+            click.echo("Execute 'python main.py analyze' primeiro para criar o knowledge graph.")
+            sys.exit(1)
+
+        # Load config
+        click.echo("Carregando configuração...")
+        config = get_config()
+
+        # Initialize LLM
+        click.echo("Inicializando LLM...")
+        llm_analyzer = LLMAnalyzer(config=config)
+        chat_model = llm_analyzer.get_chat_model()
+
+        # Load knowledge graph
+        click.echo(f"Carregando knowledge graph de {cache_path}...")
+        knowledge_graph = CodeKnowledgeGraph(cache_path=cache_path)
+        stats = knowledge_graph.get_statistics()
+        click.echo(f"✓ Carregado: {stats['total_nodes']} nós, {stats['total_edges']} arestas")
+
+        # Initialize crawler
+        crawler = CodeCrawler(knowledge_graph)
+
+        # Initialize tools
+        click.echo("Inicializando tools...")
+        init_tools(knowledge_graph, crawler)
+        tools = get_all_tools()
+        click.echo(f"✓ {len(tools)} tools disponíveis")
+
+        # Create agent
+        click.echo("Criando agent...")
+        agent = CodeAnalysisAgent(
+            llm=chat_model,
+            tools=tools,
+            verbose=verbose,
+            max_iterations=max_iterations
+        )
+
+        # Execute query
+        click.echo("\n" + "=" * 60)
+        click.echo(f"PERGUNTA: {question}")
+        click.echo("=" * 60 + "\n")
+
+        result = agent.analyze(question)
+
+        if result.get("success"):
+            click.echo("RESPOSTA:")
+            click.echo("-" * 60)
+            click.echo(result["answer"])
+            click.echo("-" * 60)
+
+            if result.get("tool_calls"):
+                click.echo(f"\n📊 Tools utilizadas: {result['tool_call_count']}")
+                if verbose:
+                    for i, tool_call in enumerate(result["tool_calls"], 1):
+                        click.echo(f"  {i}. {tool_call['tool']}")
+        else:
+            click.echo(f"❌ Erro: {result.get('error', 'Erro desconhecido')}", err=True)
+            sys.exit(1)
+
+        click.echo("\n" + "=" * 60)
+        click.echo("Query concluída!")
+        click.echo("=" * 60)
+
+    except ImportError as e:
+        click.echo(f"❌ Erro de importação: {e}", err=True)
+        click.echo("\nVerifique se as dependências estão instaladas:")
+        click.echo("  pip install langchain langchain-core")
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Erro: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 if __name__ == '__main__':
     cli()
 

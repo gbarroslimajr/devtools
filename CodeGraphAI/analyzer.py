@@ -878,20 +878,36 @@ DDL:
         """
         return self.token_tracker.get_statistics()
 
+    def get_chat_model(self):
+        """
+        Retorna LLM como ChatModel compatível com LangChain agent
+
+        Returns:
+            ChatModel instance (ChatOpenAI, ChatAnthropic, ou wrapper)
+        """
+        if self.llm_mode == 'api':
+            # API mode já retorna ChatModel compatível
+            return self.llm
+        else:
+            # Local mode - retorna HuggingFacePipeline que é compatível
+            return self.llm
+
 
 class ProcedureAnalyzer:
     """Orquestra análise completa de procedures"""
 
-    def __init__(self, llm_analyzer: LLMAnalyzer):
+    def __init__(self, llm_analyzer: LLMAnalyzer, knowledge_graph: Optional[Any] = None):
         """
         Inicializa o analisador de procedures
 
         Args:
             llm_analyzer: Instância do LLMAnalyzer para análise com IA
+            knowledge_graph: CodeKnowledgeGraph opcional para persistência
         """
         self.llm = llm_analyzer
         self.procedures: Dict[str, ProcedureInfo] = {}
         self.dependency_graph = nx.DiGraph()
+        self.knowledge_graph = knowledge_graph
 
     def analyze_from_files(self, directory_path: str, extension: str = "prc",
                           show_progress: bool = True) -> None:
@@ -990,7 +1006,50 @@ class ProcedureAnalyzer:
         logger.info("Calculando níveis de dependência...")
         self._calculate_dependency_levels()
 
+        # Popula knowledge graph se disponível
+        if self.knowledge_graph:
+            logger.info("Populando knowledge graph...")
+            self._populate_knowledge_graph()
+
         logger.info("Análise concluída!")
+
+    def _populate_knowledge_graph(self) -> None:
+        """Popula knowledge graph com procedures analisadas"""
+        if not self.knowledge_graph:
+            return
+
+        from app.analysis.static_analyzer import StaticCodeAnalyzer
+        static_analyzer = StaticCodeAnalyzer()
+
+        for proc_name, proc_info in self.procedures.items():
+            # Análise estática para extrair fields
+            static_result = static_analyzer.analyze_code(proc_info.source_code, proc_name)
+
+            # Prepara fields_used dict
+            fields_used = {}
+            for field_name, field_usage in static_result.fields.items():
+                fields_used[field_name] = {
+                    "operations": field_usage.operations,
+                    "transformations": field_usage.transformations,
+                    "contexts": field_usage.contexts
+                }
+
+            # Adiciona procedure ao grafo
+            self.knowledge_graph.add_procedure({
+                "name": proc_info.name,
+                "schema": proc_info.schema,
+                "parameters": proc_info.parameters,
+                "called_procedures": list(proc_info.called_procedures),
+                "called_tables": list(proc_info.called_tables),
+                "business_logic": proc_info.business_logic,
+                "complexity_score": proc_info.complexity_score,
+                "source_code": proc_info.source_code,
+                "fields_used": fields_used
+            })
+
+        # Salva no cache
+        self.knowledge_graph.save_to_cache()
+        logger.info(f"Knowledge graph populated with {len(self.procedures)} procedures")
 
     def _analyze_procedure_from_code(self, proc_name: str, source_code: str) -> ProcedureInfo:
         """

@@ -21,8 +21,9 @@ mysql-connector-python>=8.0.0
 # SQLAlchemy (opcional, para abstração futura)
 # sqlalchemy>=2.0.0
 
-# LangChain - Framework para LLM
+# LangChain - Framework para LLM e Agents
 langchain>=0.1.0
+langchain-core>=0.1.0
 langchain-community>=0.0.13
 
 # Transformers e PyTorch - Modelos de IA

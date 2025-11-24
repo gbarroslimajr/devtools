@@ -5,7 +5,7 @@ Extrai, analisa e mapeia relacionamentos entre tabelas
 
 import json
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import asdict
 from collections import defaultdict
 from pathlib import Path
@@ -52,16 +52,18 @@ class TableAnalysisConfig:
 class TableAnalyzer:
     """Orquestra análise completa de tabelas"""
 
-    def __init__(self, llm_analyzer: LLMAnalyzer):
+    def __init__(self, llm_analyzer: LLMAnalyzer, knowledge_graph: Optional[Any] = None):
         """
         Inicializa o analisador de tabelas
 
         Args:
             llm_analyzer: Instância do LLMAnalyzer para análise com IA
+            knowledge_graph: CodeKnowledgeGraph opcional para persistência
         """
         self.llm = llm_analyzer
         self.tables: Dict[str, TableInfo] = {}
         self.relationship_graph = nx.DiGraph()
+        self.knowledge_graph = knowledge_graph
 
     def analyze_from_database(
         self,
@@ -155,6 +157,11 @@ class TableAnalyzer:
         # Constrói grafo de relacionamentos
         logger.info("Construindo grafo de relacionamentos...")
         self._build_relationship_graph()
+
+        # Popula knowledge graph se disponível
+        if self.knowledge_graph:
+            logger.info("Populando knowledge graph com tabelas...")
+            self._populate_knowledge_graph()
 
         logger.info("Análise concluída!")
 
@@ -452,6 +459,58 @@ class TableAnalyzer:
                     if target_node not in table_info.relationships:
                         table_info.relationships[target_node] = []
                     table_info.relationships[target_node].append('foreign_key')
+
+    def _populate_knowledge_graph(self) -> None:
+        """Popula knowledge graph com tabelas analisadas"""
+        if not self.knowledge_graph:
+            return
+
+        for table_name, table_info in self.tables.items():
+            # Prepara columns como dicts serializáveis
+            columns = [
+                {
+                    "name": col.name,
+                    "data_type": col.data_type,
+                    "nullable": col.nullable,
+                    "default_value": col.default_value,
+                    "is_primary_key": col.is_primary_key,
+                    "is_foreign_key": col.is_foreign_key,
+                    "foreign_key_table": col.foreign_key_table,
+                    "foreign_key_column": col.foreign_key_column,
+                    "constraints": col.constraints,
+                    "comments": col.comments
+                }
+                for col in table_info.columns
+            ]
+
+            # Prepara foreign keys
+            foreign_keys = [
+                {
+                    "name": fk.name,
+                    "columns": fk.columns,
+                    "referenced_table": fk.referenced_table,
+                    "referenced_columns": fk.referenced_columns,
+                    "on_delete": fk.on_delete,
+                    "on_update": fk.on_update
+                }
+                for fk in table_info.foreign_keys
+            ]
+
+            # Adiciona tabela ao grafo
+            self.knowledge_graph.add_table({
+                "name": table_info.name,
+                "schema": table_info.schema,
+                "columns": columns,
+                "foreign_keys": foreign_keys,
+                "indexes": [asdict(idx) for idx in table_info.indexes],
+                "business_purpose": table_info.business_purpose,
+                "complexity_score": table_info.complexity_score,
+                "row_count": table_info.row_count
+            })
+
+        # Salva no cache
+        self.knowledge_graph.save_to_cache()
+        logger.info(f"Knowledge graph populated with {len(self.tables)} tables")
 
     def _normalize_table_name(self, table_name: str) -> str:
         """
