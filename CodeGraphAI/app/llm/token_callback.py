@@ -52,9 +52,8 @@ class TokenUsageCallback(BaseCallbackHandler):
             response: Resultado da requisição LLM
             **kwargs: Argumentos adicionais
         """
-        if not self.current_operation:
-            logger.warning("on_llm_end chamado sem operação definida")
-            return
+        # Se não há operação definida, usar operação genérica (para Agent)
+        operation = self.current_operation or "agent_query"
 
         # Extrair usage da resposta
         usage = self._extract_usage(response, **kwargs)
@@ -62,7 +61,7 @@ class TokenUsageCallback(BaseCallbackHandler):
         if usage:
             metrics = LLMRequestMetrics(
                 request_id=str(uuid.uuid4()),
-                operation=self.current_operation,
+                operation=operation,
                 tokens_in=usage.prompt_tokens,
                 tokens_out=usage.completion_tokens,
                 tokens_total=usage.total_tokens,
@@ -70,15 +69,21 @@ class TokenUsageCallback(BaseCallbackHandler):
                 use_toon=self.current_use_toon
             )
             self.tracker.add_metrics(metrics)
-            logger.debug(
-                f"Métricas capturadas para {self.current_operation}: "
-                f"{usage.prompt_tokens} in, {usage.completion_tokens} out, "
-                f"{usage.total_tokens} total"
-            )
+            if not self.current_operation:
+                logger.debug(f"Métricas capturadas para operação genérica (agent_query)")
+            else:
+                logger.debug(
+                    f"Métricas capturadas para {operation}: "
+                    f"{usage.prompt_tokens} in, {usage.completion_tokens} out, "
+                    f"{usage.total_tokens} total"
+                )
         else:
-            logger.warning(
-                f"Não foi possível extrair usage de tokens para {self.current_operation}"
-            )
+            if not self.current_operation:
+                logger.debug("Não foi possível extrair usage de tokens (operação genérica)")
+            else:
+                logger.warning(
+                    f"Não foi possível extrair usage de tokens para {operation}"
+                )
 
     def _extract_usage(
         self, response: LLMResult, **kwargs: Any

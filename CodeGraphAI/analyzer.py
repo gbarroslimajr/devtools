@@ -6,6 +6,10 @@ Extrai, analisa e mapeia relacionamentos entre stored procedures
 import re
 import json
 import logging
+import os
+# Configurar tokenizers antes de importar transformers
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 from typing import List, Dict, Set, Tuple, Optional, Any
 from dataclasses import asdict
 from collections import defaultdict
