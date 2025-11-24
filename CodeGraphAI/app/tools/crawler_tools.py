@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # Global dependencies (set by init_tools)
 _knowledge_graph = None
 _crawler = None
+_on_demand_analyzer = None
 
 
 class CrawlProcedureInput(BaseModel):
@@ -66,6 +67,18 @@ def crawl_procedure(
         })
 
     try:
+        # If procedure not in cache, try on-demand analysis
+        if _on_demand_analyzer:
+            proc_context = _knowledge_graph.get_procedure_context(procedure_name)
+            if not proc_context:
+                logger.info(f"Procedure '{procedure_name}' not in cache for crawling, attempting on-demand...")
+                on_demand_result = _on_demand_analyzer.get_or_analyze_procedure(procedure_name)
+                if not on_demand_result.get("success"):
+                    return json.dumps({
+                        "success": False,
+                        "error": f"Procedure '{procedure_name}' não encontrada. {on_demand_result.get('error', '')}"
+                    })
+
         crawl_result = _crawler.crawl_procedure(
             proc_name=procedure_name,
             max_depth=max_depth,

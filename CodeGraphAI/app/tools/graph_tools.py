@@ -10,8 +10,9 @@ from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
-# Global dependency (set by init_tools)
+# Global dependencies (set by init_tools)
 _knowledge_graph = None
+_on_demand_analyzer = None
 
 
 class QueryProcedureInput(BaseModel):
@@ -65,7 +66,20 @@ def query_procedure(
     try:
         proc_context = _knowledge_graph.get_procedure_context(procedure_name)
 
-        if not proc_context:
+        # If not in cache, try on-demand analysis
+        if not proc_context and _on_demand_analyzer:
+            logger.info(f"Procedure '{procedure_name}' not in cache, attempting on-demand analysis...")
+            on_demand_result = _on_demand_analyzer.get_or_analyze_procedure(procedure_name)
+
+            if on_demand_result.get("success"):
+                proc_context = on_demand_result.get("data")
+                logger.info(f"Procedure '{procedure_name}' loaded on-demand from {on_demand_result.get('source')}")
+            else:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Procedure '{procedure_name}' não encontrada. {on_demand_result.get('error', '')}"
+                })
+        elif not proc_context:
             return json.dumps({
                 "success": False,
                 "error": f"Procedure '{procedure_name}' não encontrada no knowledge graph. "
@@ -160,7 +174,20 @@ def query_table(
     try:
         table_info = _knowledge_graph.get_table_info(table_name)
 
-        if not table_info:
+        # If not in cache, try on-demand analysis
+        if not table_info and _on_demand_analyzer:
+            logger.info(f"Table '{table_name}' not in cache, attempting on-demand analysis...")
+            on_demand_result = _on_demand_analyzer.get_or_analyze_table(table_name)
+
+            if on_demand_result.get("success"):
+                table_info = on_demand_result.get("data")
+                logger.info(f"Table '{table_name}' loaded on-demand from {on_demand_result.get('source')}")
+            else:
+                return json.dumps({
+                    "success": False,
+                    "error": f"Tabela '{table_name}' não encontrada. {on_demand_result.get('error', '')}"
+                })
+        elif not table_info:
             return json.dumps({
                 "success": False,
                 "error": f"Tabela '{table_name}' não encontrada no knowledge graph. "

@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Global dependencies (set by init_tools)
 _knowledge_graph = None
 _crawler = None
+_on_demand_analyzer = None
 
 
 class AnalyzeFieldInput(BaseModel):
@@ -66,6 +67,24 @@ def analyze_field(
         })
 
     try:
+        # If procedure_name provided and not in cache, try on-demand analysis
+        if procedure_name and _on_demand_analyzer:
+            proc_context = _knowledge_graph.get_procedure_context(procedure_name)
+            if not proc_context:
+                logger.info(f"Procedure '{procedure_name}' not in cache for field analysis, attempting on-demand...")
+                on_demand_result = _on_demand_analyzer.get_or_analyze_procedure(procedure_name)
+                if not on_demand_result.get("success"):
+                    logger.warning(f"Failed to load procedure '{procedure_name}' on-demand: {on_demand_result.get('error')}")
+
+        # If table_name provided and not in cache, try on-demand analysis
+        if table_name and _on_demand_analyzer:
+            table_info = _knowledge_graph.get_table_info(table_name)
+            if not table_info:
+                logger.info(f"Table '{table_name}' not in cache for field analysis, attempting on-demand...")
+                on_demand_result = _on_demand_analyzer.get_or_analyze_table(table_name)
+                if not on_demand_result.get("success"):
+                    logger.warning(f"Failed to load table '{table_name}' on-demand: {on_demand_result.get('error')}")
+
         # Query field usage
         field_usage_list = _knowledge_graph.query_field_usage(
             field_name=field_name,
@@ -185,6 +204,18 @@ def trace_field_flow(
         })
 
     try:
+        # If start_procedure not in cache, try on-demand analysis
+        if _on_demand_analyzer:
+            proc_context = _knowledge_graph.get_procedure_context(start_procedure)
+            if not proc_context:
+                logger.info(f"Start procedure '{start_procedure}' not in cache for field tracing, attempting on-demand...")
+                on_demand_result = _on_demand_analyzer.get_or_analyze_procedure(start_procedure)
+                if not on_demand_result.get("success"):
+                    return json.dumps({
+                        "success": False,
+                        "error": f"Procedure '{start_procedure}' não encontrada. {on_demand_result.get('error', '')}"
+                    })
+
         trace_result = _crawler.trace_field(
             field_name=field_name,
             start_procedure=start_procedure,

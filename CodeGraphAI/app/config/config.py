@@ -4,6 +4,7 @@ Suporta configuração via variáveis de ambiente e arquivo .env
 """
 
 import os
+import threading
 from typing import Optional
 from pathlib import Path
 
@@ -75,10 +76,57 @@ class DefaultConfig:
 
 
 class Config:
-    """Configurações do CodeGraphAI"""
+    """
+    Configurações do CodeGraphAI (Singleton Thread-Safe)
 
-    def __init__(self):
-        """Inicializa configurações carregando variáveis de ambiente"""
+    Esta classe implementa o padrão Singleton para garantir que apenas
+    uma instância de configuração exista durante a execução da aplicação.
+
+    Uso:
+        config = Config.get_instance()  # Recomendado
+        # ou
+        config = get_config()  # Função helper (mantida para compatibilidade)
+
+    Thread-safe: Sim (usando threading.Lock com double-check locking)
+    """
+
+    _instance: Optional['Config'] = None
+    _lock: threading.Lock = threading.Lock()
+    _initialized: bool = False
+
+    def __new__(cls) -> 'Config':
+        """
+        Implementa Singleton pattern usando __new__
+
+        Previne criação de múltiplas instâncias mesmo com chamadas diretas.
+        Usa double-check locking pattern para thread-safety.
+
+        Returns:
+            Instância única de Config
+        """
+        if cls._instance is None:
+            with cls._lock:
+                # Double-check locking pattern
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self) -> None:
+        """
+        Inicializa configurações (executado apenas uma vez)
+
+        Usa flag _initialized para evitar reinicialização em chamadas
+        subsequentes de __new__.
+        """
+        if Config._initialized:
+            return
+
+        with Config._lock:
+            # Double-check para evitar race condition
+            if Config._initialized:
+                return
+
+            # Inicializa configurações carregando variáveis de ambiente
         # Carrega .env ou environment.env se disponível
         if DOTENV_AVAILABLE:
             base_path = Path(__file__).parent.parent.parent
@@ -233,6 +281,36 @@ class Config:
 
         # Validação
         self._validate()
+
+        # Marca como inicializado no final
+        Config._initialized = True
+
+    @classmethod
+    def get_instance(cls) -> 'Config':
+        """
+        Retorna instância singleton da configuração (método recomendado)
+
+        Returns:
+            Instância única de Config
+
+        Example:
+            >>> config = Config.get_instance()
+            >>> config.db_type
+            DatabaseType.POSTGRESQL
+        """
+        return cls()
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """
+        Reseta instância singleton (útil para testes)
+
+        WARNING: Use apenas em testes. Pode causar problemas em produção
+        se chamado durante execução normal.
+        """
+        with cls._lock:
+            cls._instance = None
+            cls._initialized = False
 
     @staticmethod
     def _getenv_int(key: str, default: int) -> int:
@@ -466,30 +544,35 @@ class Config:
                 f"env_loaded={self._env_loaded})")
 
 
-# Instância global de configuração
-_config: Optional[Config] = None
-
-
+# Função helper para compatibilidade com código existente
 def get_config() -> Config:
     """
-    Retorna instância global de configuração (singleton)
+    Retorna instância singleton de configuração (função helper)
+
+    Esta função mantém compatibilidade com código existente que usa
+    get_config() ao invés de Config.get_instance().
 
     Returns:
-        Instância de Config
+        Instância única de Config
+
+    Note:
+        Prefira usar Config.get_instance() em novo código.
     """
-    global _config
-    if _config is None:
-        _config = Config()
-    return _config
+    return Config.get_instance()
 
 
 def reload_config() -> Config:
     """
     Recarrega configuração (útil para testes)
 
+    Reseta a instância singleton e cria uma nova, forçando
+    recarregamento do environment.env.
+
     Returns:
         Nova instância de Config
+
+    WARNING: Use apenas em testes ou quando necessário recarregar
+    configurações durante execução.
     """
-    global _config
-    _config = Config()
-    return _config
+    Config.reset_instance()
+    return Config.get_instance()

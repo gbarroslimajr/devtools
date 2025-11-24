@@ -894,8 +894,18 @@ def export(ctx, input, output_dir, format):
 @click.option('--verbose/--no-verbose', default=False, help='Mostrar execução detalhada do agent')
 @click.option('--max-iterations', type=int, default=15, help='Número máximo de iterações do agent')
 @click.option('--cache-path', default='./cache/knowledge_graph.json', help='Caminho do cache do knowledge graph')
+@click.option('--db-type', type=click.Choice(['oracle', 'postgresql', 'mssql', 'mysql']),
+              help='Tipo de banco de dados (opcional, necessário para query tools)')
+@click.option('--db-user', help='Usuário do banco de dados (opcional)')
+@click.option('--db-password', help='Senha do banco de dados (opcional)')
+@click.option('--db-host', help='Host do banco de dados (opcional)')
+@click.option('--db-port', type=int, help='Porta do banco de dados (opcional)')
+@click.option('--db-database', help='Nome do banco de dados (opcional, obrigatório para PostgreSQL, SQL Server, MySQL)')
+@click.option('--db-schema', help='Schema do banco de dados (opcional)')
+@click.option('--db-dsn', help='DSN completo para Oracle (host:port/service) (opcional)')
 @click.pass_context
-def query(ctx, question, verbose, max_iterations, cache_path):
+def query(ctx, question, verbose, max_iterations, cache_path,
+          db_type, db_user, db_password, db_host, db_port, db_database, db_schema, db_dsn):
     """
     Faz query inteligente usando agent com tools
 
@@ -944,9 +954,68 @@ def query(ctx, question, verbose, max_iterations, cache_path):
         # Initialize crawler
         crawler = CodeCrawler(knowledge_graph)
 
+        # Create DatabaseConfig - use CLI params if provided, otherwise use config from environment.env
+        db_config = None
+
+        try:
+            from app.core.models import DatabaseConfig, DatabaseType
+
+            # Get values: CLI params take priority, fallback to config
+            final_db_type = db_type or (config.db_type.value if config.db_type else None)
+            final_db_user = db_user or config.oracle_user
+            final_db_password = db_password or config.oracle_password
+            final_db_host = db_host or config.db_host
+            final_db_port = db_port or (int(config.db_port) if config.db_port else None)
+            final_db_database = db_database or config.db_database
+            final_db_schema = db_schema or config.db_schema
+
+            # Check if we have enough info to create DatabaseConfig
+            # db_dsn tem prioridade sobre db_host
+            has_host_or_dsn = db_dsn or final_db_host
+
+            if final_db_type and final_db_user and final_db_password and has_host_or_dsn:
+                # For non-Oracle, database is required
+                if final_db_type.lower() != 'oracle' and not final_db_database:
+                    click.echo("⚠️  Database name é obrigatório para bancos não-Oracle. Query tools não estarão disponíveis.", err=True)
+                    click.echo("   Configure CODEGRAPHAI_DB_NAME em environment.env ou use --db-database")
+                else:
+                    db_type_enum = DatabaseType(final_db_type.lower())
+
+                    # Determine connection host: db_dsn tem prioridade
+                    if db_dsn:
+                        connection_host = db_dsn
+                    elif final_db_type.lower() == 'oracle':
+                        # For Oracle, construct DSN if needed
+                        connection_host = final_db_host
+                        if final_db_database and final_db_port:
+                            connection_host = f"{connection_host}:{final_db_port}/{final_db_database}"
+                        elif final_db_database:
+                            connection_host = f"{connection_host}/{final_db_database}"
+                        elif final_db_port:
+                            connection_host = f"{connection_host}:{final_db_port}"
+                    else:
+                        connection_host = final_db_host
+
+                    db_config = DatabaseConfig(
+                        db_type=db_type_enum,
+                        user=final_db_user,
+                        password=final_db_password,
+                        host=connection_host,
+                        port=final_db_port,
+                        database=final_db_database,
+                        schema=final_db_schema
+                    )
+                    source = "do environment.env" if not (db_type or db_user or db_host) else "dos parâmetros CLI"
+                    click.echo(f"✓ Configuração de banco de dados carregada ({source})")
+            else:
+                click.echo("⚠️  Configuração de banco incompleta. Query tools não estarão disponíveis.", err=True)
+                click.echo("   Configure em environment.env ou forneça via CLI: --db-type, --db-user, --db-password, --db-host")
+        except Exception as e:
+            click.echo(f"⚠️  Erro ao criar configuração de banco: {e}. Query tools não estarão disponíveis.", err=True)
+
         # Initialize tools
         click.echo("Inicializando tools...")
-        init_tools(knowledge_graph, crawler)
+        init_tools(knowledge_graph, crawler, db_config=db_config)
         tools = get_all_tools()
         click.echo(f"✓ {len(tools)} tools disponíveis")
 
