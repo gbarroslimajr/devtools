@@ -1,3 +1,9 @@
+[project]
+name = "codegraphai"
+requires-python = ">=3.8"
+description = "Análise inteligente de procedures e tabelas de banco de dados usando IA"
+readme = "README.md"
+
 [tool.black]
 line-length = 100
 target-version = ['py38', 'py39', 'py310', 'py311']
