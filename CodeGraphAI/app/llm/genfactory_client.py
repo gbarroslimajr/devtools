@@ -11,7 +11,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
 
-from app.core.models import LLMAnalysisError
+from app.core.models import LLMAnalysisError, TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,9 @@ class GenFactoryClient:
             self.session.verify = False
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        # Armazenar último usage capturado
+        self.last_usage: Optional[TokenUsage] = None
 
         logger.info(f"GenFactoryClient inicializado: {self.base_url}, model={self.model}")
 
@@ -148,6 +151,9 @@ class GenFactoryClient:
             # Parsear resposta
             response_data = response.json()
 
+            # Extrair usage da resposta (se disponível)
+            self.last_usage = self._extract_usage(response_data)
+
             # Extrair conteúdo da resposta
             # Formato esperado: {"choices": [{"message": {"content": "..."}}]}
             if 'choices' in response_data and len(response_data['choices']) > 0:
@@ -175,7 +181,44 @@ class GenFactoryClient:
         except (KeyError, ValueError) as e:
             raise LLMAnalysisError(f"Erro ao processar resposta da API: {e}")
 
+    def _extract_usage(self, response_data: Dict[str, Any]) -> Optional[TokenUsage]:
+        """
+        Extrai informações de uso de tokens da resposta da API
+
+        Args:
+            response_data: Dados da resposta JSON da API
+
+        Returns:
+            TokenUsage ou None se não disponível
+        """
+        # Formato OpenAI-compatible: {"usage": {"prompt_tokens": X, "completion_tokens": Y, "total_tokens": Z}}
+        usage_data = response_data.get('usage')
+        if not usage_data:
+            return None
+
+        try:
+            prompt_tokens = usage_data.get('prompt_tokens', 0)
+            completion_tokens = usage_data.get('completion_tokens', 0)
+            total_tokens = usage_data.get('total_tokens', prompt_tokens + completion_tokens)
+
+            return TokenUsage(
+                prompt_tokens=int(prompt_tokens),
+                completion_tokens=int(completion_tokens),
+                total_tokens=int(total_tokens)
+            )
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Erro ao parsear usage da resposta: {e}")
+            return None
+
+    def get_last_usage(self) -> Optional[TokenUsage]:
+        """
+        Retorna o último usage capturado
+
+        Returns:
+            TokenUsage do último request ou None
+        """
+        return self.last_usage
+
     def __repr__(self) -> str:
         """Representação string do cliente"""
         return f"GenFactoryClient(base_url={self.base_url}, model={self.model})"
-

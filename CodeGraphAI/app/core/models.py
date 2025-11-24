@@ -5,6 +5,7 @@ Modelos de dados e exceções para CodeGraphAI
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional
+from datetime import datetime
 
 
 # Exceções customizadas
@@ -183,3 +184,22 @@ class TableInfo:
     complexity_score: int = 0  # Baseado em colunas, FKs, índices
     relationships: Dict[str, List[str]] = field(default_factory=dict)  # {table: [relationship_type]}
 
+
+@dataclass
+class TokenUsage:
+    """Informações de uso de tokens em uma requisição LLM"""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass
+class LLMRequestMetrics:
+    """Métricas de uma requisição LLM"""
+    request_id: str
+    operation: str  # "analyze_business_logic", "extract_dependencies", "calculate_complexity", "analyze_table_purpose"
+    tokens_in: int
+    tokens_out: int
+    tokens_total: int
+    timestamp: datetime
+    use_toon: bool = False  # Se TOON foi usado nesta requisição

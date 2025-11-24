@@ -32,6 +32,8 @@ from app.core.models import (
 from app.io.factory import create_loader
 from app.io.file_loader import FileLoader
 from app.llm.toon_converter import format_dependencies_prompt_example, parse_llm_response, TOON_AVAILABLE
+from app.llm.token_tracker import TokenTracker
+from app.llm.token_callback import TokenUsageCallback
 
 # Configurar logger
 logger = logging.getLogger(__name__)
@@ -238,6 +240,10 @@ class LLMAnalyzer:
 
         self.config = config
 
+        # Inicializar tracker e callback de tokens
+        self.token_tracker = TokenTracker()
+        self.token_callback = TokenUsageCallback(self.token_tracker)
+
         # Determinar modo LLM
         if llm_mode is None:
             llm_mode = config.llm_mode
@@ -361,8 +367,8 @@ class LLMAnalyzer:
 
         client = GenFactoryClient(provider_config)
 
-        # Criar wrapper LangChain
-        self.llm = GenFactoryLLM(client)
+        # Criar wrapper LangChain com callback
+        self.llm = GenFactoryLLM(client, callbacks=[self.token_callback])
 
         logger.info(f"GenFactory LLM inicializado: {provider_config.get('name', provider)}")
 
@@ -393,6 +399,7 @@ class LLMAnalyzer:
 
         self.llm = ChatOpenAI(
             api_key=config['api_key'],
+            callbacks=[self.token_callback],
             **kwargs
         )
 
@@ -417,7 +424,8 @@ class LLMAnalyzer:
             model=config.get('model', 'claude-sonnet-4-5-20250929'),
             temperature=config.get('temperature', 0.3),
             max_tokens=config.get('max_tokens', 4000),
-            timeout=config.get('timeout', 60)
+            timeout=config.get('timeout', 60),
+            callbacks=[self.token_callback]
         )
 
         logger.info(f"Anthropic Claude inicializado: {config.get('model')}")
@@ -510,9 +518,16 @@ Resposta:"""
             LLMAnalysisError: Se houver erro na análise
         """
         try:
+            # Definir operação para tracking de tokens
+            use_toon = getattr(self.config, 'llm_use_toon', False) and TOON_AVAILABLE
+            self.token_callback.set_operation("analyze_business_logic", use_toon=use_toon)
+
             truncated_code = code[:AnalysisConfig.MAX_CODE_LENGTH_BUSINESS_LOGIC]
             chain = self.business_logic_prompt | self.llm
-            result = chain.invoke({"code": truncated_code, "proc_name": proc_name})
+            result = chain.invoke(
+                {"code": truncated_code, "proc_name": proc_name},
+                config={"callbacks": [self.token_callback]}
+            )
             # Se result for um objeto com content, extrair o content
             if hasattr(result, 'content'):
                 return result.content.strip()
@@ -537,9 +552,16 @@ Resposta:"""
 
         # Depois complementa com LLM para casos mais complexos
         try:
+            # Definir operação para tracking de tokens
+            use_toon = getattr(self.config, 'llm_use_toon', False) and TOON_AVAILABLE
+            self.token_callback.set_operation("extract_dependencies", use_toon=use_toon)
+
             truncated_code = code[:AnalysisConfig.MAX_CODE_LENGTH_DEPENDENCIES]
             chain = self.dependencies_prompt | self.llm
-            result = chain.invoke({"code": truncated_code})
+            result = chain.invoke(
+                {"code": truncated_code},
+                config={"callbacks": [self.token_callback]}
+            )
             # Se result for um objeto com content, extrair o content
             if hasattr(result, 'content'):
                 result = result.content
@@ -547,7 +569,6 @@ Resposta:"""
                 result = str(result)
 
             # Parse response (TOON ou JSON) com validação
-            use_toon = getattr(self.config, 'llm_use_toon', False) and TOON_AVAILABLE
             deps = parse_llm_response(result, use_toon=use_toon)
 
             if deps:
@@ -633,9 +654,16 @@ Resposta:"""
             Score de complexidade entre 1 e 10
         """
         try:
+            # Definir operação para tracking de tokens
+            use_toon = getattr(self.config, 'llm_use_toon', False) and TOON_AVAILABLE
+            self.token_callback.set_operation("calculate_complexity", use_toon=use_toon)
+
             truncated_code = code[:AnalysisConfig.MAX_CODE_LENGTH_COMPLEXITY]
             chain = self.complexity_prompt | self.llm
-            result = chain.invoke({"code": truncated_code})
+            result = chain.invoke(
+                {"code": truncated_code},
+                config={"callbacks": [self.token_callback]}
+            )
             # Se result for um objeto com content, extrair o content
             if hasattr(result, 'content'):
                 result = result.content
@@ -696,17 +724,24 @@ Resposta:"""
             LLMAnalysisError: Se houver erro na análise
         """
         try:
+            # Definir operação para tracking de tokens
+            use_toon = getattr(self.config, 'llm_use_toon', False) and TOON_AVAILABLE
+            self.token_callback.set_operation("analyze_table_purpose", use_toon=use_toon)
+
             # Limita tamanho do DDL para não exceder limites do LLM
             max_ddl_length = 2000
             truncated_ddl = ddl[:max_ddl_length] if len(ddl) > max_ddl_length else ddl
             columns_str = ', '.join(columns[:20])  # Limita a 20 colunas para o prompt
 
             chain = self.table_purpose_prompt | self.llm
-            result = chain.invoke({
-                "ddl": truncated_ddl,
-                "table_name": table_name,
-                "columns": columns_str
-            })
+            result = chain.invoke(
+                {
+                    "ddl": truncated_ddl,
+                    "table_name": table_name,
+                    "columns": columns_str
+                },
+                config={"callbacks": [self.token_callback]}
+            )
             # Se result for um objeto com content, extrair o content
             if hasattr(result, 'content'):
                 return result.content.strip()
@@ -714,6 +749,15 @@ Resposta:"""
         except Exception as e:
             logger.error(f"Erro ao analisar propósito da tabela {table_name}: {e}")
             raise LLMAnalysisError(f"Erro ao analisar propósito da tabela: {e}")
+
+    def get_token_statistics(self) -> Dict[str, Any]:
+        """
+        Retorna estatísticas de uso de tokens
+
+        Returns:
+            Dict com estatísticas detalhadas de tokens
+        """
+        return self.token_tracker.get_statistics()
 
 
 class ProcedureAnalyzer:
@@ -1009,6 +1053,25 @@ class ProcedureAnalyzer:
             raise ExportError("Nenhuma procedure para exportar")
 
         try:
+            # Coletar estatísticas de tokens
+            token_stats = None
+            token_metrics_list = None
+            if hasattr(self.llm, 'get_token_statistics'):
+                token_stats = self.llm.get_token_statistics()
+            if hasattr(self.llm, 'token_tracker'):
+                token_metrics_list = [
+                    {
+                        'request_id': m.request_id,
+                        'operation': m.operation,
+                        'tokens_in': m.tokens_in,
+                        'tokens_out': m.tokens_out,
+                        'tokens_total': m.tokens_total,
+                        'timestamp': m.timestamp.isoformat(),
+                        'use_toon': m.use_toon
+                    }
+                    for m in self.llm.token_tracker.get_all_metrics()
+                ]
+
             results = {
                 'procedures': {
                     name: {
@@ -1025,6 +1088,30 @@ class ProcedureAnalyzer:
                     'max_dependency_level': max(p.dependencies_level for p in self.procedures.values()) if self.procedures else 0
                 }
             }
+
+            # Adicionar métricas de tokens se disponíveis
+            if token_stats or token_metrics_list:
+                results['token_metrics'] = {}
+                if token_stats:
+                    results['token_metrics']['statistics'] = token_stats
+                if token_metrics_list:
+                    results['token_metrics']['detailed'] = token_metrics_list
+
+                # Adicionar comparação TOON se disponível
+                if hasattr(self.llm, 'token_tracker'):
+                    toon_comparison = self.llm.token_tracker.get_toon_comparison()
+                    if toon_comparison:
+                        # Converter para formato serializável
+                        serializable_comparison = {}
+                        for key, value in toon_comparison.items():
+                            if isinstance(value, dict):
+                                serializable_comparison[key] = {
+                                    k: v.isoformat() if hasattr(v, 'isoformat') else v
+                                    for k, v in value.items()
+                                }
+                            else:
+                                serializable_comparison[key] = value
+                        results['token_metrics']['toon_comparison'] = serializable_comparison
 
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(results, f, indent=2, ensure_ascii=False)

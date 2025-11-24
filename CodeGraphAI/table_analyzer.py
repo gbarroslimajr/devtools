@@ -302,6 +302,25 @@ class TableAnalyzer:
             raise ExportError("Nenhuma tabela para exportar")
 
         try:
+            # Coletar estatísticas de tokens
+            token_stats = None
+            token_metrics_list = None
+            if hasattr(self.llm, 'get_token_statistics'):
+                token_stats = self.llm.get_token_statistics()
+            if hasattr(self.llm, 'token_tracker'):
+                token_metrics_list = [
+                    {
+                        'request_id': m.request_id,
+                        'operation': m.operation,
+                        'tokens_in': m.tokens_in,
+                        'tokens_out': m.tokens_out,
+                        'tokens_total': m.tokens_total,
+                        'timestamp': m.timestamp.isoformat(),
+                        'use_toon': m.use_toon
+                    }
+                    for m in self.llm.token_tracker.get_all_metrics()
+                ]
+
             results = {
                 'tables': {
                     name: {
@@ -320,6 +339,30 @@ class TableAnalyzer:
                     'total_indexes': sum(len(t.indexes) for t in self.tables.values())
                 }
             }
+
+            # Adicionar métricas de tokens se disponíveis
+            if token_stats or token_metrics_list:
+                results['token_metrics'] = {}
+                if token_stats:
+                    results['token_metrics']['statistics'] = token_stats
+                if token_metrics_list:
+                    results['token_metrics']['detailed'] = token_metrics_list
+
+                # Adicionar comparação TOON se disponível
+                if hasattr(self.llm, 'token_tracker'):
+                    toon_comparison = self.llm.token_tracker.get_toon_comparison()
+                    if toon_comparison:
+                        # Converter para formato serializável
+                        serializable_comparison = {}
+                        for key, value in toon_comparison.items():
+                            if isinstance(value, dict):
+                                serializable_comparison[key] = {
+                                    k: v.isoformat() if hasattr(v, 'isoformat') else v
+                                    for k, v in value.items()
+                                }
+                            else:
+                                serializable_comparison[key] = value
+                        results['token_metrics']['toon_comparison'] = serializable_comparison
 
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(results, f, indent=2, ensure_ascii=False)
