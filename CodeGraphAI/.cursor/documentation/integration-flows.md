@@ -5,6 +5,8 @@
 - [Overview](#overview)
 - [File Analysis Flow](#file-analysis-flow)
 - [Database Analysis Flow](#database-analysis-flow)
+- [Table Analysis Flow](#table-analysis-flow)
+- [Query Flow (Agent)](#query-flow-agent)
 - [Export Flow](#export-flow)
 - [CLI Usage Examples](#cli-usage-examples)
 - [Programmatic Usage](#programmatic-usage)
@@ -240,6 +242,226 @@ analyzer.export_results("analysis.json")
 
 ---
 
+## Table Analysis Flow
+
+### Diagrama de Sequência
+
+```
+User
+ │
+ ├─> CLI: analyze --analysis-type=tables
+ │    │
+ │    ├─> TableAnalyzer.analyze_from_database()
+ │    │    │
+ │    │    ├─> TableFactory.create_loader(db_type)
+ │    │    │    └─> Retorna table loader específico
+ │    │    │
+ │    │    ├─> loader.load_tables(config)
+ │    │    │    └─> Conecta ao banco e extrai tabelas
+ │    │    │        └─> Retorna List[TableInfo]
+ │    │    │
+ │    │    ├─> Batch Processing (padrão: 5 tabelas)
+ │    │    │    │
+ │    │    │    ├─> Para cada batch:
+ │    │    │    │    │
+ │    │    │    │    ├─> ThreadPoolExecutor (padrão: 2 workers)
+ │    │    │    │    │    │
+ │    │    │    │    │    ├─> Para cada tabela (paralelo):
+ │    │    │    │    │    │    │
+ │    │    │    │    │    │    ├─> Extrai DDL, colunas, índices, FKs
+ │    │    │    │    │    │    │
+ │    │    │    │    │    │    ├─> LLMAnalyzer.analyze_table_purpose()
+ │    │    │    │    │    │    │    └─> LLM Chain → business_purpose
+ │    │    │    │    │    │    │
+ │    │    │    │    │    │    ├─> Calcula complexity_score (heurística)
+ │    │    │    │    │    │    │
+ │    │    │    │    │    │    └─> Cria TableInfo
+ │    │    │    │    │    │
+ │    │    │    │    │    └─> Aguarda conclusão do batch
+ │    │    │    │    │
+ │    │    │    │    └─> Próximo batch
+ │    │    │    │
+ │    │    │    └─> Cache de análise
+ │    │    │
+ │    │    ├─> KnowledgeGraph.add_table()
+ │    │    │    └─> Adiciona ao grafo
+ │    │    │
+ │    │    ├─> Constrói grafo de relacionamentos (NetworkX)
+ │    │    │
+ │    │    └─> Calcula hierarquia por FKs
+ │    │
+ │    └─> Exporta resultados (JSON, PNG, Mermaid)
+ │
+ └─> Retorna estatísticas
+```
+
+### Exemplo CLI
+
+```bash
+# Análise de tabelas apenas
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco --schema public \
+    --batch-size 5 \
+    --parallel-workers 2
+
+# Análise completa (tabelas + procedures)
+python main.py analyze --analysis-type=both \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco --schema public \
+    --batch-size 5 \
+    --parallel-workers 2
+```
+
+### Exemplo Programático
+
+```python
+from table_analyzer import TableAnalyzer
+from analyzer import LLMAnalyzer
+from app.core.models import DatabaseType, DatabaseConfig
+
+# Inicializa LLM
+llm = LLMAnalyzer(llm_mode='api', config=config)
+
+# Cria analisador de tabelas
+table_analyzer = TableAnalyzer(llm)
+
+# Analisa tabelas do banco
+table_analyzer.analyze_from_database(
+    user="postgres",
+    password="senha",
+    host="localhost",
+    port=5432,
+    database="meu_banco",
+    schema="public",
+    db_type="postgresql",
+    batch_size=5,
+    parallel_workers=2
+)
+
+# Exporta resultados
+table_analyzer.export_results("table_analysis.json")
+table_analyzer.visualize_relationships("relationship_graph.png")
+table_analyzer.export_mermaid_diagram("table_diagram.md")
+```
+
+---
+
+## Query Flow (Agent)
+
+### Diagrama de Sequência
+
+```
+User
+ │
+ ├─> CLI: query "pergunta em linguagem natural"
+ │    │
+ │    ├─> Carrega KnowledgeGraph do cache
+ │    │    └─> cache/knowledge_graph.json
+ │    │
+ │    ├─> Inicializa CodeAnalysisAgent
+ │    │    │
+ │    │    ├─> Cria LangChain agent com tools:
+ │    │    │    - query_procedure
+ │    │    │    - query_table
+ │    │    │    - analyze_field
+ │    │    │    - trace_field_flow
+ │    │    │    - crawl_procedure
+ │    │    │    - execute_query (opcional)
+ │    │    │
+ │    │    └─> Configura system prompt
+ │    │
+ │    ├─> Agent.analyze(pergunta)
+ │    │    │
+ │    │    ├─> Agent escolhe tool apropriada
+ │    │    │    │
+ │    │    │    ├─> Tool executa query no KnowledgeGraph
+ │    │    │    │    └─> Retorna informações
+ │    │    │    │
+ │    │    │    └─> Agent processa resultado
+ │    │    │
+ │    │    ├─> Se necessário, escolhe outra tool
+ │    │    │    └─> Múltiplas iterações (max: 15)
+ │    │    │
+ │    │    └─> Agent sintetiza resposta final
+ │    │
+ │    └─> Retorna resposta ao usuário
+ │
+ └─> Exibe resposta formatada
+```
+
+### Exemplo CLI
+
+```bash
+# Query básica
+python main.py query "O que faz a procedure PROCESSAR_PEDIDO?"
+
+# Análise de campo
+python main.py query "Analise o campo status da procedure VALIDAR_USUARIO"
+
+# Análise de impacto
+python main.py query "Se eu modificar CALCULAR_SALDO, quais procedures serão impactadas?"
+
+# Rastreamento de campo
+python main.py query "De onde vem o campo email usado em CRIAR_USUARIO?"
+
+# Modo verbose (mostra tools utilizadas)
+python main.py query "Quem chama VALIDAR_USUARIO?" --verbose
+
+# Com configuração de banco para execute_query
+python main.py query "Quantos registros tem a tabela PEDIDOS?" \
+    --db-type postgresql \
+    --db-user postgres \
+    --db-password senha \
+    --db-host localhost \
+    --db-port 5432 \
+    --db-database meu_banco
+```
+
+### Exemplo Programático
+
+```python
+from app.graph.knowledge_graph import CodeKnowledgeGraph
+from app.analysis.code_crawler import CodeCrawler
+from app.tools import init_tools, get_all_tools
+from app.agents.code_analysis_agent import CodeAnalysisAgent
+from analyzer import LLMAnalyzer
+from app.config.config import get_config
+
+# Setup
+config = get_config()
+llm_analyzer = LLMAnalyzer(config=config)
+chat_model = llm_analyzer.get_chat_model()
+
+# Load knowledge graph
+knowledge_graph = CodeKnowledgeGraph(cache_path="./cache/knowledge_graph.json")
+crawler = CodeCrawler(knowledge_graph)
+
+# Initialize tools
+init_tools(knowledge_graph, crawler)
+tools = get_all_tools()
+
+# Create agent
+agent = CodeAnalysisAgent(
+    llm=chat_model,
+    tools=tools,
+    verbose=True,
+    max_iterations=15
+)
+
+# Query
+result = agent.analyze("O que faz a procedure PROCESSAR_PEDIDO?")
+if result["success"]:
+    print(result["answer"])
+    print(f"Tools usadas: {result['tool_call_count']}")
+```
+
+---
+
 ## Export Flow
 
 ### Diagrama de Sequência
@@ -446,5 +668,5 @@ except CodeGraphAIError as e:
 
 ---
 
-Generated on: 2024-11-23 16:45:00
+Generated on: 2025-01-27 12:00:00
 
