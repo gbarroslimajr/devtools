@@ -8,6 +8,7 @@ from typing import Dict
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
+
     PSYCOPG2_AVAILABLE = True
 except ImportError:
     PSYCOPG2_AVAILABLE = False
@@ -33,6 +34,47 @@ class PostgreSQLLoader(ProcedureLoaderBase):
     def get_database_type(self) -> DatabaseType:
         """Retorna o tipo de banco de dados"""
         return DatabaseType.POSTGRESQL
+
+    def test_connection_only(self, config: DatabaseConfig) -> bool:
+        """
+        Testa apenas a conexão com o banco usando query simples
+
+        Args:
+            config: Configuração de conexão
+
+        Returns:
+            True se conexão bem-sucedida, False caso contrário
+
+        Raises:
+            ProcedureLoadError: Se houver erro de conexão
+        """
+        self.validate_config(config)
+
+        if not config.database:
+            raise ValidationError("PostgreSQL requer o nome do banco de dados (database)")
+
+        port = config.port or 5432
+
+        try:
+            connection = psycopg2.connect(
+                host=config.host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password
+            )
+            cursor = connection.cursor()
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+            cursor.close()
+            connection.close()
+            return result[0] == 1
+        except psycopg2.Error as e:
+            logger.error(f"Erro de conexão PostgreSQL: {e}")
+            raise ProcedureLoadError(f"Erro ao conectar ao PostgreSQL: {e}")
+        except Exception as e:
+            logger.error(f"Erro inesperado ao testar conexão PostgreSQL: {e}")
+            raise ProcedureLoadError(f"Erro ao testar conexão PostgreSQL: {e}")
 
     def load_procedures(self, config: DatabaseConfig) -> Dict[str, str]:
         """
@@ -68,12 +110,11 @@ class PostgreSQLLoader(ProcedureLoaderBase):
             # Lista procedures
             # PostgreSQL usa information_schema.routines
             query = """
-                SELECT
-                    routine_schema,
-                    routine_name
-                FROM information_schema.routines
-                WHERE routine_type = 'PROCEDURE'
-            """
+                    SELECT routine_schema,
+                           routine_name
+                    FROM information_schema.routines
+                    WHERE routine_type = 'PROCEDURE' \
+                    """
 
             params = []
             if config.schema:
@@ -92,14 +133,13 @@ class PostgreSQLLoader(ProcedureLoaderBase):
                     # Busca código fonte usando pg_get_functiondef
                     # Para procedures, precisamos usar pg_proc
                     cursor.execute("""
-                        SELECT
-                            pg_get_functiondef(p.oid) as definition
-                        FROM pg_proc p
-                        JOIN pg_namespace n ON p.pronamespace = n.oid
-                        WHERE n.nspname = %s
-                        AND p.proname = %s
-                        AND p.prokind = 'p'
-                    """, (schema_name, proc_name))
+                                   SELECT pg_get_functiondef(p.oid) as definition
+                                   FROM pg_proc p
+                                            JOIN pg_namespace n ON p.pronamespace = n.oid
+                                   WHERE n.nspname = %s
+                                     AND p.proname = %s
+                                     AND p.prokind = 'p'
+                                   """, (schema_name, proc_name))
 
                     result = cursor.fetchone()
                     if result and result['definition']:
@@ -107,12 +147,12 @@ class PostgreSQLLoader(ProcedureLoaderBase):
                     else:
                         # Fallback: tenta obter de information_schema
                         cursor.execute("""
-                            SELECT routine_definition
-                            FROM information_schema.routines
-                            WHERE routine_schema = %s
-                            AND routine_name = %s
-                            AND routine_type = 'PROCEDURE'
-                        """, (schema_name, proc_name))
+                                       SELECT routine_definition
+                                       FROM information_schema.routines
+                                       WHERE routine_schema = %s
+                                         AND routine_name = %s
+                                         AND routine_type = 'PROCEDURE'
+                                       """, (schema_name, proc_name))
 
                         result = cursor.fetchone()
                         if result and result.get('routine_definition'):
@@ -152,4 +192,3 @@ class PostgreSQLLoader(ProcedureLoaderBase):
 # Registra o loader no factory
 if PSYCOPG2_AVAILABLE:
     register_loader(DatabaseType.POSTGRESQL, PostgreSQLLoader)
-

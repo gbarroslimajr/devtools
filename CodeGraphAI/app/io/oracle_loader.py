@@ -7,6 +7,7 @@ from typing import Dict
 
 try:
     import oracledb
+
     ORACLEDB_AVAILABLE = True
 except ImportError:
     ORACLEDB_AVAILABLE = False
@@ -32,6 +33,50 @@ class OracleLoader(ProcedureLoaderBase):
     def get_database_type(self) -> DatabaseType:
         """Retorna o tipo de banco de dados"""
         return DatabaseType.ORACLE
+
+    def test_connection_only(self, config: DatabaseConfig) -> bool:
+        """
+        Testa apenas a conexão com o banco usando query simples
+
+        Args:
+            config: Configuração de conexão
+
+        Returns:
+            True se conexão bem-sucedida, False caso contrário
+
+        Raises:
+            ProcedureLoadError: Se houver erro de conexão
+        """
+        self.validate_config(config)
+
+        # Oracle usa DSN no formato host:port/service
+        if config.database:
+            if config.port:
+                dsn = f"{config.host}:{config.port}/{config.database}"
+            else:
+                dsn = f"{config.host}/{config.database}"
+        else:
+            # Assume que host já é DSN completo
+            dsn = config.host
+
+        try:
+            connection = oracledb.connect(
+                user=config.user,
+                password=config.password,
+                dsn=dsn
+            )
+            cursor = connection.cursor()
+            cursor.execute("SELECT 1 FROM DUAL")
+            result = cursor.fetchone()
+            cursor.close()
+            connection.close()
+            return result[0] == 1
+        except oracledb.Error as e:
+            logger.error(f"Erro de conexão Oracle: {e}")
+            raise ProcedureLoadError(f"Erro ao conectar ao Oracle: {e}")
+        except Exception as e:
+            logger.error(f"Erro inesperado ao testar conexão Oracle: {e}")
+            raise ProcedureLoadError(f"Erro ao testar conexão Oracle: {e}")
 
     def load_procedures(self, config: DatabaseConfig) -> Dict[str, str]:
         """
@@ -85,10 +130,12 @@ class OracleLoader(ProcedureLoaderBase):
                 try:
                     # Busca código fonte
                     cursor.execute("""
-                        SELECT TEXT FROM ALL_SOURCE
-                        WHERE OWNER = :owner AND NAME = :name
-                        ORDER BY LINE
-                    """, owner=owner, name=proc_name)
+                                   SELECT TEXT
+                                   FROM ALL_SOURCE
+                                   WHERE OWNER = :owner
+                                     AND NAME = :name
+                                   ORDER BY LINE
+                                   """, owner=owner, name=proc_name)
 
                     lines = cursor.fetchall()
                     source = ''.join([line[0] for line in lines])
@@ -124,4 +171,3 @@ class OracleLoader(ProcedureLoaderBase):
 # Registra o loader no factory
 if ORACLEDB_AVAILABLE:
     register_loader(DatabaseType.ORACLE, OracleLoader)
-

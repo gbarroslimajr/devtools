@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Optional
 
 try:
     import pyodbc
+
     PYODBC_AVAILABLE = True
 except ImportError:
     PYODBC_AVAILABLE = False
@@ -73,10 +74,10 @@ class MSSQLTableLoader(TableLoaderBase):
 
             # Lista tabelas
             query = """
-                SELECT TABLE_SCHEMA, TABLE_NAME
-                FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_TYPE = 'BASE TABLE'
-            """
+                    SELECT TABLE_SCHEMA, TABLE_NAME
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_TYPE = 'BASE TABLE' \
+                    """
 
             params = []
             if config.schema:
@@ -118,7 +119,7 @@ class MSSQLTableLoader(TableLoaderBase):
             raise TableLoadError(f"Erro ao carregar tabelas do SQL Server: {e}")
 
     def _load_table_details(
-        self, cursor, schema: str, table_name: str, config: DatabaseConfig
+            self, cursor, schema: str, table_name: str, config: DatabaseConfig
     ) -> TableInfo:
         """Carrega detalhes completos de uma tabela"""
 
@@ -157,48 +158,42 @@ class MSSQLTableLoader(TableLoaderBase):
     def _load_columns(self, cursor, schema: str, table_name: str) -> List[ColumnInfo]:
         """Carrega informações das colunas"""
         query = """
-            SELECT
-                c.COLUMN_NAME,
-                c.DATA_TYPE,
-                c.CHARACTER_MAXIMUM_LENGTH,
-                c.NUMERIC_PRECISION,
-                c.NUMERIC_SCALE,
-                c.IS_NULLABLE,
-                c.COLUMN_DEFAULT,
-                CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_PK,
-                CASE WHEN fk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_FK,
-                fk.REFERENCED_TABLE,
-                fk.REFERENCED_COLUMN
-            FROM INFORMATION_SCHEMA.COLUMNS c
-            LEFT JOIN (
-                SELECT ku.COLUMN_NAME
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                    ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-                    AND tc.TABLE_SCHEMA = ?
-                    AND tc.TABLE_NAME = ?
-            ) pk ON pk.COLUMN_NAME = c.COLUMN_NAME
-            LEFT JOIN (
-                SELECT
-                    ku.COLUMN_NAME,
-                    ccu.TABLE_SCHEMA + '.' + ccu.TABLE_NAME as REFERENCED_TABLE,
-                    ccu.COLUMN_NAME as REFERENCED_COLUMN
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                    ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-                JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
-                    ON tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ccu
-                    ON rc.UNIQUE_CONSTRAINT_NAME = ccu.CONSTRAINT_NAME
-                WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
-                    AND tc.TABLE_SCHEMA = ?
-                    AND tc.TABLE_NAME = ?
-            ) fk ON fk.COLUMN_NAME = c.COLUMN_NAME
-            WHERE c.TABLE_SCHEMA = ?
-                AND c.TABLE_NAME = ?
-            ORDER BY c.ORDINAL_POSITION
-        """
+                SELECT c.COLUMN_NAME,
+                       c.DATA_TYPE,
+                       c.CHARACTER_MAXIMUM_LENGTH,
+                       c.NUMERIC_PRECISION,
+                       c.NUMERIC_SCALE,
+                       c.IS_NULLABLE,
+                       c.COLUMN_DEFAULT,
+                       CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_PK,
+                       CASE WHEN fk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_FK,
+                       fk.REFERENCED_TABLE,
+                       fk.REFERENCED_COLUMN
+                FROM INFORMATION_SCHEMA.COLUMNS c
+                         LEFT JOIN (SELECT ku.COLUMN_NAME
+                                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                                             JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                                                  ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                                    WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                                      AND tc.TABLE_SCHEMA = ?
+                                      AND tc.TABLE_NAME = ?) pk ON pk.COLUMN_NAME = c.COLUMN_NAME
+                         LEFT JOIN (SELECT ku.COLUMN_NAME,
+                                           ccu.TABLE_SCHEMA + '.' + ccu.TABLE_NAME as REFERENCED_TABLE,
+                                           ccu.COLUMN_NAME                         as REFERENCED_COLUMN
+                                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                                             JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                                                  ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                                             JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+                                                  ON tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+                                             JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ccu
+                                                  ON rc.UNIQUE_CONSTRAINT_NAME = ccu.CONSTRAINT_NAME
+                                    WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+                                      AND tc.TABLE_SCHEMA = ?
+                                      AND tc.TABLE_NAME = ?) fk ON fk.COLUMN_NAME = c.COLUMN_NAME
+                WHERE c.TABLE_SCHEMA = ?
+                  AND c.TABLE_NAME = ?
+                ORDER BY c.ORDINAL_POSITION \
+                """
 
         cursor.execute(query, (schema, table_name, schema, table_name, schema, table_name))
         rows = cursor.fetchall()
@@ -231,22 +226,22 @@ class MSSQLTableLoader(TableLoaderBase):
     def _load_indexes(self, cursor, schema: str, table_name: str) -> List[IndexInfo]:
         """Carrega informações dos índices"""
         query = """
-            SELECT
-                i.name as INDEX_NAME,
-                i.is_unique,
-                i.type_desc as INDEX_TYPE,
-                STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal) as COLUMNS,
-                CASE WHEN pk.name IS NOT NULL THEN 1 ELSE 0 END as IS_PRIMARY
-            FROM sys.indexes i
-            JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-            JOIN sys.tables t ON i.object_id = t.object_id
-            JOIN sys.schemas s ON t.schema_id = s.schema_id
-            LEFT JOIN sys.key_constraints pk ON i.object_id = pk.parent_object_id AND i.name = pk.name
-            WHERE s.name = ? AND t.name = ?
-                AND i.type_desc != 'HEAP'
-            GROUP BY i.name, i.is_unique, i.type_desc, pk.name
-        """
+                SELECT i.name                                                          as INDEX_NAME,
+                       i.is_unique,
+                       i.type_desc                                                     as INDEX_TYPE,
+                       STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal) as COLUMNS,
+                       CASE WHEN pk.name IS NOT NULL THEN 1 ELSE 0 END                 as IS_PRIMARY
+                FROM sys.indexes i
+                         JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+                         JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                         JOIN sys.tables t ON i.object_id = t.object_id
+                         JOIN sys.schemas s ON t.schema_id = s.schema_id
+                         LEFT JOIN sys.key_constraints pk ON i.object_id = pk.parent_object_id AND i.name = pk.name
+                WHERE s.name = ?
+                  AND t.name = ?
+                  AND i.type_desc != 'HEAP'
+                GROUP BY i.name, i.is_unique, i.type_desc, pk.name \
+                """
 
         cursor.execute(query, (schema, table_name))
         rows = cursor.fetchall()
@@ -269,22 +264,26 @@ class MSSQLTableLoader(TableLoaderBase):
     def _load_foreign_keys(self, cursor, schema: str, table_name: str) -> List[ForeignKeyInfo]:
         """Carrega informações das foreign keys"""
         query = """
-            SELECT
-                fk.name as CONSTRAINT_NAME,
-                STRING_AGG(cp.name, ', ') WITHIN GROUP (ORDER BY cp.column_id) as COLUMNS,
-                OBJECT_SCHEMA_NAME(fk.referenced_object_id) + '.' + OBJECT_NAME(fk.referenced_object_id) as REFERENCED_TABLE,
-                STRING_AGG(cr.name, ', ') WITHIN GROUP (ORDER BY cr.column_id) as REFERENCED_COLUMNS,
-                fk.delete_referential_action_desc,
-                fk.update_referential_action_desc
-            FROM sys.foreign_keys fk
-            JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
-            JOIN sys.columns cp ON fkc.parent_object_id = cp.object_id AND fkc.parent_column_id = cp.column_id
-            JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
-            JOIN sys.tables t ON fk.parent_object_id = t.object_id
-            JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = ? AND t.name = ?
-            GROUP BY fk.name, fk.referenced_object_id, fk.delete_referential_action_desc, fk.update_referential_action_desc
-        """
+                SELECT fk.name                                                                                  as CONSTRAINT_NAME,
+                       STRING_AGG(cp.name, ', ') WITHIN GROUP (ORDER BY cp.column_id)                           as COLUMNS,
+                       OBJECT_SCHEMA_NAME(fk.referenced_object_id) + '.' +
+                       OBJECT_NAME(fk.referenced_object_id)                                                     as REFERENCED_TABLE,
+                       STRING_AGG(cr.name, ', ') WITHIN GROUP (ORDER BY cr.column_id)                           as REFERENCED_COLUMNS,
+                       fk.delete_referential_action_desc,
+                       fk.update_referential_action_desc
+                FROM sys.foreign_keys fk
+                         JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+                         JOIN sys.columns cp
+                              ON fkc.parent_object_id = cp.object_id AND fkc.parent_column_id = cp.column_id
+                         JOIN sys.columns cr
+                              ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
+                         JOIN sys.tables t ON fk.parent_object_id = t.object_id
+                         JOIN sys.schemas s ON t.schema_id = s.schema_id
+                WHERE s.name = ?
+                  AND t.name = ?
+                GROUP BY fk.name, fk.referenced_object_id, fk.delete_referential_action_desc,
+                         fk.update_referential_action_desc \
+                """
 
         cursor.execute(query, (schema, table_name))
         rows = cursor.fetchall()
@@ -370,17 +369,17 @@ class MSSQLTableLoader(TableLoaderBase):
     def _get_table_stats(self, cursor, schema: str, table_name: str) -> Tuple[Optional[int], Optional[str]]:
         """Obtém estatísticas da tabela"""
         query = """
-            SELECT
-                p.rows as ROW_COUNT,
-                CAST(ROUND(((SUM(a.total_pages) * 8) / 1024.0), 2) AS VARCHAR) + ' MB' as SIZE_MB
-            FROM sys.tables t
-            JOIN sys.schemas s ON t.schema_id = s.schema_id
-            JOIN sys.indexes i ON t.object_id = i.object_id
-            JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
-            JOIN sys.allocation_units a ON p.partition_id = a.container_id
-            WHERE s.name = ? AND t.name = ?
-            GROUP BY p.rows
-        """
+                SELECT p.rows                                                                 as ROW_COUNT,
+                       CAST(ROUND(((SUM(a.total_pages) * 8) / 1024.0), 2) AS VARCHAR) + ' MB' as SIZE_MB
+                FROM sys.tables t
+                         JOIN sys.schemas s ON t.schema_id = s.schema_id
+                         JOIN sys.indexes i ON t.object_id = i.object_id
+                         JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+                         JOIN sys.allocation_units a ON p.partition_id = a.container_id
+                WHERE s.name = ?
+                  AND t.name = ?
+                GROUP BY p.rows \
+                """
         try:
             cursor.execute(query, (schema, table_name))
             row = cursor.fetchone()
@@ -395,4 +394,3 @@ class MSSQLTableLoader(TableLoaderBase):
 # Registra o loader no factory
 if PYODBC_AVAILABLE:
     register_table_loader(DatabaseType.MSSQL, MSSQLTableLoader)
-

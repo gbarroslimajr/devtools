@@ -7,6 +7,7 @@ from typing import Dict
 
 try:
     import pyodbc
+
     PYODBC_AVAILABLE = True
 except ImportError:
     PYODBC_AVAILABLE = False
@@ -32,6 +33,57 @@ class MSSQLLoader(ProcedureLoaderBase):
     def get_database_type(self) -> DatabaseType:
         """Retorna o tipo de banco de dados"""
         return DatabaseType.MSSQL
+
+    def test_connection_only(self, config: DatabaseConfig) -> bool:
+        """
+        Testa apenas a conexão com o banco usando query simples
+
+        Args:
+            config: Configuração de conexão
+
+        Returns:
+            True se conexão bem-sucedida, False caso contrário
+
+        Raises:
+            ProcedureLoadError: Se houver erro de conexão
+        """
+        self.validate_config(config)
+
+        if not config.database:
+            raise ValidationError("SQL Server requer o nome do banco de dados (database)")
+
+        port = config.port or 1433
+
+        # Constrói connection string para SQL Server
+        driver = config.extra_params.get('driver', 'ODBC Driver 17 for SQL Server')
+        connection_string = (
+            f"DRIVER={{{driver}}};"
+            f"SERVER={config.host},{port};"
+            f"DATABASE={config.database};"
+            f"UID={config.user};"
+            f"PWD={config.password}"
+        )
+
+        # Adiciona parâmetros extras se houver
+        if config.extra_params:
+            for key, value in config.extra_params.items():
+                if key != 'driver':
+                    connection_string += f";{key}={value}"
+
+        try:
+            connection = pyodbc.connect(connection_string)
+            cursor = connection.cursor()
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+            cursor.close()
+            connection.close()
+            return result[0] == 1
+        except pyodbc.Error as e:
+            logger.error(f"Erro de conexão SQL Server: {e}")
+            raise ProcedureLoadError(f"Erro ao conectar ao SQL Server: {e}")
+        except Exception as e:
+            logger.error(f"Erro inesperado ao testar conexão SQL Server: {e}")
+            raise ProcedureLoadError(f"Erro ao testar conexão SQL Server: {e}")
 
     def load_procedures(self, config: DatabaseConfig) -> Dict[str, str]:
         """
@@ -77,12 +129,11 @@ class MSSQLLoader(ProcedureLoaderBase):
 
             # Lista procedures usando INFORMATION_SCHEMA
             query = """
-                SELECT
-                    ROUTINE_SCHEMA,
-                    ROUTINE_NAME
-                FROM INFORMATION_SCHEMA.ROUTINES
-                WHERE ROUTINE_TYPE = 'PROCEDURE'
-            """
+                    SELECT ROUTINE_SCHEMA,
+                           ROUTINE_NAME
+                    FROM INFORMATION_SCHEMA.ROUTINES
+                    WHERE ROUTINE_TYPE = 'PROCEDURE' \
+                    """
 
             params = []
             if config.schema:
@@ -97,10 +148,10 @@ class MSSQLLoader(ProcedureLoaderBase):
                 try:
                     # Busca código fonte usando sys.sql_modules
                     cursor.execute("""
-                        SELECT definition
-                        FROM sys.sql_modules
-                        WHERE object_id = OBJECT_ID(?)
-                    """, f"{schema_name}.{proc_name}")
+                                   SELECT definition
+                                   FROM sys.sql_modules
+                                   WHERE object_id = OBJECT_ID(?)
+                                   """, f"{schema_name}.{proc_name}")
 
                     result = cursor.fetchone()
                     if result and result[0]:
@@ -140,4 +191,3 @@ class MSSQLLoader(ProcedureLoaderBase):
 # Registra o loader no factory
 if PYODBC_AVAILABLE:
     register_loader(DatabaseType.MSSQL, MSSQLLoader)
-

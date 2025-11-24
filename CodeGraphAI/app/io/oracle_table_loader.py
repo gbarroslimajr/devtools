@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Optional
 
 try:
     import oracledb
+
     ORACLEDB_AVAILABLE = True
 except ImportError:
     ORACLEDB_AVAILABLE = False
@@ -83,10 +84,10 @@ class OracleTableLoader(TableLoaderBase):
 
             # Lista tabelas
             query = """
-                SELECT owner, table_name
-                FROM all_tables
-                WHERE owner NOT IN ('SYS', 'SYSTEM', 'SYSAUX')
-            """
+                    SELECT owner, table_name
+                    FROM all_tables
+                    WHERE owner NOT IN ('SYS', 'SYSTEM', 'SYSAUX') \
+                    """
 
             params = []
             if config.schema:
@@ -128,7 +129,7 @@ class OracleTableLoader(TableLoaderBase):
             raise TableLoadError(f"Erro ao carregar tabelas do Oracle: {e}")
 
     def _load_table_details(
-        self, cursor, schema: str, table_name: str, config: DatabaseConfig
+            self, cursor, schema: str, table_name: str, config: DatabaseConfig
     ) -> TableInfo:
         """Carrega detalhes completos de uma tabela"""
 
@@ -167,45 +168,40 @@ class OracleTableLoader(TableLoaderBase):
     def _load_columns(self, cursor, schema: str, table_name: str) -> List[ColumnInfo]:
         """Carrega informações das colunas"""
         query = """
-            SELECT
-                c.column_name,
-                c.data_type,
-                c.data_length,
-                c.data_precision,
-                c.data_scale,
-                c.nullable,
-                c.data_default,
-                CASE WHEN pk.column_name IS NOT NULL THEN 'Y' ELSE 'N' END as is_pk,
-                CASE WHEN fk.column_name IS NOT NULL THEN 'Y' ELSE 'N' END as is_fk,
-                fk.referenced_table,
-                fk.referenced_column,
-                c.comments
-            FROM all_tab_columns c
-            LEFT JOIN (
-                SELECT ku.column_name
-                FROM all_constraints tc
-                JOIN all_cons_columns ku ON tc.constraint_name = ku.constraint_name
-                WHERE tc.constraint_type = 'P'
-                    AND tc.owner = :schema
-                    AND tc.table_name = :table_name
-            ) pk ON pk.column_name = c.column_name
-            LEFT JOIN (
-                SELECT
-                    ku.column_name,
-                    ccu.owner || '.' || ccu.table_name as referenced_table,
-                    ccu.column_name as referenced_column
-                FROM all_constraints tc
-                JOIN all_cons_columns ku ON tc.constraint_name = ku.constraint_name
-                JOIN all_constraints ccu_const ON tc.r_constraint_name = ccu_const.constraint_name
-                JOIN all_cons_columns ccu ON ccu_const.constraint_name = ccu.constraint_name
-                WHERE tc.constraint_type = 'R'
-                    AND tc.owner = :schema
-                    AND tc.table_name = :table_name
-            ) fk ON fk.column_name = c.column_name
-            WHERE c.owner = :schema
-                AND c.table_name = :table_name
-            ORDER BY c.column_id
-        """
+                SELECT c.column_name,
+                       c.data_type,
+                       c.data_length,
+                       c.data_precision,
+                       c.data_scale,
+                       c.nullable,
+                       c.data_default,
+                       CASE WHEN pk.column_name IS NOT NULL THEN 'Y' ELSE 'N' END as is_pk,
+                       CASE WHEN fk.column_name IS NOT NULL THEN 'Y' ELSE 'N' END as is_fk,
+                       fk.referenced_table,
+                       fk.referenced_column,
+                       c.comments
+                FROM all_tab_columns c
+                         LEFT JOIN (SELECT ku.column_name
+                                    FROM all_constraints tc
+                                             JOIN all_cons_columns ku ON tc.constraint_name = ku.constraint_name
+                                    WHERE tc.constraint_type = 'P'
+                                      AND tc.owner = :schema
+                                      AND tc.table_name = :table_name) pk ON pk.column_name = c.column_name
+                         LEFT JOIN (SELECT ku.column_name,
+                                           ccu.owner || '.' || ccu.table_name as referenced_table,
+                                           ccu.column_name                    as referenced_column
+                                    FROM all_constraints tc
+                                             JOIN all_cons_columns ku ON tc.constraint_name = ku.constraint_name
+                                             JOIN all_constraints ccu_const
+                                                  ON tc.r_constraint_name = ccu_const.constraint_name
+                                             JOIN all_cons_columns ccu ON ccu_const.constraint_name = ccu.constraint_name
+                                    WHERE tc.constraint_type = 'R'
+                                      AND tc.owner = :schema
+                                      AND tc.table_name = :table_name) fk ON fk.column_name = c.column_name
+                WHERE c.owner = :schema
+                  AND c.table_name = :table_name
+                ORDER BY c.column_id \
+                """
 
         cursor.execute(query, {'schema': schema, 'table_name': table_name})
         rows = cursor.fetchall()
@@ -239,26 +235,23 @@ class OracleTableLoader(TableLoaderBase):
     def _load_indexes(self, cursor, schema: str, table_name: str) -> List[IndexInfo]:
         """Carrega informações dos índices"""
         query = """
-            SELECT
-                i.index_name,
-                i.uniqueness,
-                i.index_type,
-                LISTAGG(ic.column_name, ', ') WITHIN GROUP (ORDER BY ic.column_position) as columns,
-                CASE WHEN pk.constraint_name IS NOT NULL THEN 'Y' ELSE 'N' END as is_primary
-            FROM all_indexes i
-            JOIN all_ind_columns ic ON i.index_name = ic.index_name AND i.owner = ic.index_owner
-            LEFT JOIN (
-                SELECT constraint_name
-                FROM all_constraints
-                WHERE constraint_type = 'P'
-                    AND owner = :schema
-                    AND table_name = :table_name
-            ) pk ON i.index_name = pk.constraint_name
-            WHERE i.table_owner = :schema
-                AND i.table_name = :table_name
-                AND i.index_type != 'LOB'
-            GROUP BY i.index_name, i.uniqueness, i.index_type, pk.constraint_name
-        """
+                SELECT i.index_name,
+                       i.uniqueness,
+                       i.index_type,
+                       LISTAGG(ic.column_name, ', ') WITHIN GROUP (ORDER BY ic.column_position) as columns,
+                       CASE WHEN pk.constraint_name IS NOT NULL THEN 'Y' ELSE 'N' END           as is_primary
+                FROM all_indexes i
+                         JOIN all_ind_columns ic ON i.index_name = ic.index_name AND i.owner = ic.index_owner
+                         LEFT JOIN (SELECT constraint_name
+                                    FROM all_constraints
+                                    WHERE constraint_type = 'P'
+                                      AND owner = :schema
+                                      AND table_name = :table_name) pk ON i.index_name = pk.constraint_name
+                WHERE i.table_owner = :schema
+                  AND i.table_name = :table_name
+                  AND i.index_type != 'LOB'
+                GROUP BY i.index_name, i.uniqueness, i.index_type, pk.constraint_name \
+                """
 
         cursor.execute(query, {'schema': schema, 'table_name': table_name})
         rows = cursor.fetchall()
@@ -281,23 +274,22 @@ class OracleTableLoader(TableLoaderBase):
     def _load_foreign_keys(self, cursor, schema: str, table_name: str) -> List[ForeignKeyInfo]:
         """Carrega informações das foreign keys"""
         query = """
-            SELECT
-                tc.constraint_name,
-                LISTAGG(ku.column_name, ', ') WITHIN GROUP (ORDER BY ku.position) as columns,
-                ccu.owner || '.' || ccu.table_name as referenced_table,
-                LISTAGG(ccu.column_name, ', ') WITHIN GROUP (ORDER BY ccu.position) as referenced_columns,
-                rc.delete_rule,
-                rc.update_rule
-            FROM all_constraints tc
-            JOIN all_cons_columns ku ON tc.constraint_name = ku.constraint_name
-            JOIN all_constraints ccu_const ON tc.r_constraint_name = ccu_const.constraint_name
-            JOIN all_cons_columns ccu ON ccu_const.constraint_name = ccu.constraint_name
-            JOIN all_constraints rc ON tc.constraint_name = rc.constraint_name
-            WHERE tc.constraint_type = 'R'
-                AND tc.owner = :schema
-                AND tc.table_name = :table_name
-            GROUP BY tc.constraint_name, ccu.owner, ccu.table_name, rc.delete_rule, rc.update_rule
-        """
+                SELECT tc.constraint_name,
+                       LISTAGG(ku.column_name, ', ') WITHIN GROUP (ORDER BY ku.position)   as columns,
+                       ccu.owner || '.' || ccu.table_name                                  as referenced_table,
+                       LISTAGG(ccu.column_name, ', ') WITHIN GROUP (ORDER BY ccu.position) as referenced_columns,
+                       rc.delete_rule,
+                       rc.update_rule
+                FROM all_constraints tc
+                         JOIN all_cons_columns ku ON tc.constraint_name = ku.constraint_name
+                         JOIN all_constraints ccu_const ON tc.r_constraint_name = ccu_const.constraint_name
+                         JOIN all_cons_columns ccu ON ccu_const.constraint_name = ccu.constraint_name
+                         JOIN all_constraints rc ON tc.constraint_name = rc.constraint_name
+                WHERE tc.constraint_type = 'R'
+                  AND tc.owner = :schema
+                  AND tc.table_name = :table_name
+                GROUP BY tc.constraint_name, ccu.owner, ccu.table_name, rc.delete_rule, rc.update_rule \
+                """
 
         cursor.execute(query, {'schema': schema, 'table_name': table_name})
         rows = cursor.fetchall()
@@ -362,9 +354,9 @@ class OracleTableLoader(TableLoaderBase):
 
             # Usa DBMS_METADATA para obter DDL
             cursor.execute("""
-                SELECT DBMS_METADATA.GET_DDL('TABLE', :table_name, :schema)
-                FROM DUAL
-            """, {'table_name': table_name, 'schema': schema})
+                           SELECT DBMS_METADATA.GET_DDL('TABLE', :table_name, :schema)
+                           FROM DUAL
+                           """, {'table_name': table_name, 'schema': schema})
 
             result = cursor.fetchone()
             connection.close()
@@ -384,11 +376,12 @@ class OracleTableLoader(TableLoaderBase):
     def _get_table_stats(self, cursor, schema: str, table_name: str) -> Tuple[Optional[int], Optional[str]]:
         """Obtém estatísticas da tabela"""
         query = """
-            SELECT num_rows,
-                   ROUND(blocks * 8192 / 1024 / 1024, 2) || ' MB' as size_mb
-            FROM all_tables
-            WHERE owner = :schema AND table_name = :table_name
-        """
+                SELECT num_rows,
+                       ROUND(blocks * 8192 / 1024 / 1024, 2) || ' MB' as size_mb
+                FROM all_tables
+                WHERE owner = :schema
+                  AND table_name = :table_name \
+                """
         try:
             cursor.execute(query, {'schema': schema, 'table_name': table_name})
             row = cursor.fetchone()
@@ -403,4 +396,3 @@ class OracleTableLoader(TableLoaderBase):
 # Registra o loader no factory
 if ORACLEDB_AVAILABLE:
     register_table_loader(DatabaseType.ORACLE, OracleTableLoader)
-

@@ -8,10 +8,12 @@ from typing import Dict
 try:
     import mysql.connector
     from mysql.connector import Error as MySQLError
+
     MYSQL_AVAILABLE = True
 except ImportError:
     try:
         import pymysql
+
         MYSQL_AVAILABLE = True
         MYSQL_DRIVER = 'pymysql'
     except ImportError:
@@ -43,6 +45,56 @@ class MySQLLoader(ProcedureLoaderBase):
     def get_database_type(self) -> DatabaseType:
         """Retorna o tipo de banco de dados"""
         return DatabaseType.MYSQL
+
+    def test_connection_only(self, config: DatabaseConfig) -> bool:
+        """
+        Testa apenas a conexão com o banco usando query simples
+
+        Args:
+            config: Configuração de conexão
+
+        Returns:
+            True se conexão bem-sucedida, False caso contrário
+
+        Raises:
+            ProcedureLoadError: Se houver erro de conexão
+        """
+        self.validate_config(config)
+
+        if not config.database:
+            raise ValidationError("MySQL requer o nome do banco de dados (database)")
+
+        port = config.port or 3306
+
+        try:
+            if self.driver == 'mysql-connector':
+                connection = mysql.connector.connect(
+                    host=config.host,
+                    port=port,
+                    database=config.database,
+                    user=config.user,
+                    password=config.password
+                )
+                cursor = connection.cursor()
+            else:  # pymysql
+                import pymysql
+                connection = pymysql.connect(
+                    host=config.host,
+                    port=port,
+                    database=config.database,
+                    user=config.user,
+                    password=config.password
+                )
+                cursor = connection.cursor()
+
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+            cursor.close()
+            connection.close()
+            return result[0] == 1
+        except Exception as e:
+            logger.error(f"Erro ao testar conexão MySQL: {e}")
+            raise ProcedureLoadError(f"Erro ao testar conexão MySQL: {e}")
 
     def load_procedures(self, config: DatabaseConfig) -> Dict[str, str]:
         """
@@ -89,12 +141,11 @@ class MySQLLoader(ProcedureLoaderBase):
 
             # Lista procedures usando INFORMATION_SCHEMA
             query = """
-                SELECT
-                    ROUTINE_SCHEMA,
-                    ROUTINE_NAME
-                FROM INFORMATION_SCHEMA.ROUTINES
-                WHERE ROUTINE_TYPE = 'PROCEDURE'
-            """
+                    SELECT ROUTINE_SCHEMA,
+                           ROUTINE_NAME
+                    FROM INFORMATION_SCHEMA.ROUTINES
+                    WHERE ROUTINE_TYPE = 'PROCEDURE' \
+                    """
 
             params = []
             if config.schema:
@@ -120,12 +171,12 @@ class MySQLLoader(ProcedureLoaderBase):
                 try:
                     # Busca código fonte usando ROUTINE_DEFINITION
                     cursor.execute("""
-                        SELECT ROUTINE_DEFINITION
-                        FROM INFORMATION_SCHEMA.ROUTINES
-                        WHERE ROUTINE_SCHEMA = %s
-                        AND ROUTINE_NAME = %s
-                        AND ROUTINE_TYPE = 'PROCEDURE'
-                    """, (schema_name, proc_name))
+                                   SELECT ROUTINE_DEFINITION
+                                   FROM INFORMATION_SCHEMA.ROUTINES
+                                   WHERE ROUTINE_SCHEMA = %s
+                                     AND ROUTINE_NAME = %s
+                                     AND ROUTINE_TYPE = 'PROCEDURE'
+                                   """, (schema_name, proc_name))
 
                     result = cursor.fetchone()
                     if result:
@@ -171,4 +222,3 @@ class MySQLLoader(ProcedureLoaderBase):
 # Registra o loader no factory
 if MYSQL_AVAILABLE:
     register_loader(DatabaseType.MYSQL, MySQLLoader)
-

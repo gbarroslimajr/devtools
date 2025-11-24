@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Optional
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
+
     PSYCOPG2_AVAILABLE = True
 except ImportError:
     PSYCOPG2_AVAILABLE = False
@@ -70,11 +71,11 @@ class PostgreSQLTableLoader(TableLoaderBase):
 
             # Lista tabelas
             query = """
-                SELECT table_schema, table_name
-                FROM information_schema.tables
-                WHERE table_type = 'BASE TABLE'
-                AND table_schema NOT IN ('pg_catalog', 'information_schema')
-            """
+                    SELECT table_schema, table_name
+                    FROM information_schema.tables
+                    WHERE table_type = 'BASE TABLE'
+                      AND table_schema NOT IN ('pg_catalog', 'information_schema') \
+                    """
 
             params = []
             if config.schema:
@@ -92,12 +93,12 @@ class PostgreSQLTableLoader(TableLoaderBase):
             if not tables_list:
                 try:
                     debug_query = """
-                        SELECT DISTINCT table_schema
-                        FROM information_schema.tables
-                        WHERE table_type = 'BASE TABLE'
-                        AND table_schema NOT IN ('pg_catalog', 'information_schema')
-                        ORDER BY table_schema
-                    """
+                                  SELECT DISTINCT table_schema
+                                  FROM information_schema.tables
+                                  WHERE table_type = 'BASE TABLE'
+                                    AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                                  ORDER BY table_schema \
+                                  """
                     cursor.execute(debug_query)
                     available_schemas = [row['table_schema'] for row in cursor.fetchall()]
                     if available_schemas:
@@ -105,11 +106,11 @@ class PostgreSQLTableLoader(TableLoaderBase):
                     else:
                         # Tenta listar todos os schemas existentes
                         cursor.execute("""
-                            SELECT schema_name
-                            FROM information_schema.schemata
-                            WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-                            ORDER BY schema_name
-                        """)
+                                       SELECT schema_name
+                                       FROM information_schema.schemata
+                                       WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                                       ORDER BY schema_name
+                                       """)
                         all_schemas = [row['schema_name'] for row in cursor.fetchall()]
                         if all_schemas:
                             logger.warning(f"Schemas existentes no banco (sem tabelas): {', '.join(all_schemas)}")
@@ -159,21 +160,21 @@ class PostgreSQLTableLoader(TableLoaderBase):
 
                     # Lista todos os schemas com tabelas
                     debug_cursor.execute("""
-                        SELECT DISTINCT table_schema
-                        FROM information_schema.tables
-                        WHERE table_type = 'BASE TABLE'
-                        AND table_schema NOT IN ('pg_catalog', 'information_schema')
-                        ORDER BY table_schema
-                    """)
+                                         SELECT DISTINCT table_schema
+                                         FROM information_schema.tables
+                                         WHERE table_type = 'BASE TABLE'
+                                           AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                                         ORDER BY table_schema
+                                         """)
                     schemas_with_tables = [row['table_schema'] for row in debug_cursor.fetchall()]
 
                     # Lista todos os schemas existentes
                     debug_cursor.execute("""
-                        SELECT schema_name
-                        FROM information_schema.schemata
-                        WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-                        ORDER BY schema_name
-                    """)
+                                         SELECT schema_name
+                                         FROM information_schema.schemata
+                                         WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                                         ORDER BY schema_name
+                                         """)
                     all_schemas = [row['schema_name'] for row in debug_cursor.fetchall()]
 
                     if connection.closed == 0 and not connection.closed:
@@ -206,7 +207,7 @@ class PostgreSQLTableLoader(TableLoaderBase):
             raise TableLoadError(f"Erro ao carregar tabelas do PostgreSQL: {e}")
 
     def _load_table_details(
-        self, cursor, schema: str, table_name: str, config: DatabaseConfig
+            self, cursor, schema: str, table_name: str, config: DatabaseConfig
     ) -> TableInfo:
         """Carrega detalhes completos de uma tabela"""
 
@@ -257,49 +258,43 @@ class PostgreSQLTableLoader(TableLoaderBase):
     def _load_columns(self, cursor, schema: str, table_name: str) -> List[ColumnInfo]:
         """Carrega informações das colunas"""
         query = """
-            SELECT
-                c.column_name,
-                c.data_type,
-                c.is_nullable,
-                c.column_default,
-                c.character_maximum_length,
-                c.numeric_precision,
-                c.numeric_scale,
-                CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk,
-                CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_fk,
-                fk.referenced_table,
-                fk.referenced_column,
-                col_description(pgc.oid, c.ordinal_position) as column_comment
-            FROM information_schema.columns c
-            JOIN pg_class pgc ON pgc.relname = c.table_name
-            JOIN pg_namespace pgn ON pgn.oid = pgc.relnamespace AND pgn.nspname = c.table_schema
-            LEFT JOIN (
-                SELECT ku.column_name
-                FROM information_schema.table_constraints tc
-                JOIN information_schema.key_column_usage ku
-                    ON tc.constraint_name = ku.constraint_name
-                WHERE tc.constraint_type = 'PRIMARY KEY'
-                    AND tc.table_schema = %s
-                    AND tc.table_name = %s
-            ) pk ON pk.column_name = c.column_name
-            LEFT JOIN (
-                SELECT
-                    ku.column_name,
-                    ccu.table_schema || '.' || ccu.table_name as referenced_table,
-                    ccu.column_name as referenced_column
-                FROM information_schema.table_constraints tc
-                JOIN information_schema.key_column_usage ku
-                    ON tc.constraint_name = ku.constraint_name
-                JOIN information_schema.constraint_column_usage ccu
-                    ON tc.constraint_name = ccu.constraint_name
-                WHERE tc.constraint_type = 'FOREIGN KEY'
-                    AND tc.table_schema = %s
-                    AND tc.table_name = %s
-            ) fk ON fk.column_name = c.column_name
-            WHERE c.table_schema = %s
-                AND c.table_name = %s
-            ORDER BY c.ordinal_position
-        """
+                SELECT c.column_name,
+                       c.data_type,
+                       c.is_nullable,
+                       c.column_default,
+                       c.character_maximum_length,
+                       c.numeric_precision,
+                       c.numeric_scale,
+                       CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk,
+                       CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_fk,
+                       fk.referenced_table,
+                       fk.referenced_column,
+                       col_description(pgc.oid, c.ordinal_position)                  as column_comment
+                FROM information_schema.columns c
+                         JOIN pg_class pgc ON pgc.relname = c.table_name
+                         JOIN pg_namespace pgn ON pgn.oid = pgc.relnamespace AND pgn.nspname = c.table_schema
+                         LEFT JOIN (SELECT ku.column_name
+                                    FROM information_schema.table_constraints tc
+                                             JOIN information_schema.key_column_usage ku
+                                                  ON tc.constraint_name = ku.constraint_name
+                                    WHERE tc.constraint_type = 'PRIMARY KEY'
+                                      AND tc.table_schema = %s
+                                      AND tc.table_name = %s) pk ON pk.column_name = c.column_name
+                         LEFT JOIN (SELECT ku.column_name,
+                                           ccu.table_schema || '.' || ccu.table_name as referenced_table,
+                                           ccu.column_name                           as referenced_column
+                                    FROM information_schema.table_constraints tc
+                                             JOIN information_schema.key_column_usage ku
+                                                  ON tc.constraint_name = ku.constraint_name
+                                             JOIN information_schema.constraint_column_usage ccu
+                                                  ON tc.constraint_name = ccu.constraint_name
+                                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                                      AND tc.table_schema = %s
+                                      AND tc.table_name = %s) fk ON fk.column_name = c.column_name
+                WHERE c.table_schema = %s
+                  AND c.table_name = %s
+                ORDER BY c.ordinal_position \
+                """
 
         cursor.execute(query, (schema, table_name, schema, table_name, schema, table_name))
         rows = cursor.fetchall()
@@ -335,25 +330,24 @@ class PostgreSQLTableLoader(TableLoaderBase):
         # Query simplificada para evitar problemas com JOINs complexos
         # Primeiro, busca os índices
         query = """
-            SELECT
-                i.indexname as index_name,
-                i.indexdef
-            FROM pg_indexes i
-            WHERE i.schemaname = %s
-                AND i.tablename = %s
-        """
+                SELECT i.indexname as index_name,
+                       i.indexdef
+                FROM pg_indexes i
+                WHERE i.schemaname = %s
+                  AND i.tablename = %s \
+                """
 
         cursor.execute(query, (schema, table_name))
         rows = cursor.fetchall()
 
         # Busca primary keys separadamente
         pk_query = """
-            SELECT constraint_name
-            FROM information_schema.table_constraints
-            WHERE constraint_type = 'PRIMARY KEY'
-                AND table_schema = %s
-                AND table_name = %s
-        """
+                   SELECT constraint_name
+                   FROM information_schema.table_constraints
+                   WHERE constraint_type = 'PRIMARY KEY'
+                     AND table_schema = %s
+                     AND table_name = %s \
+                   """
         cursor.execute(pk_query, (schema, table_name))
         pk_rows = cursor.fetchall()
         pk_constraint_names = {row['constraint_name'] for row in pk_rows} if pk_rows else set()
@@ -394,25 +388,24 @@ class PostgreSQLTableLoader(TableLoaderBase):
     def _load_foreign_keys(self, cursor, schema: str, table_name: str) -> List[ForeignKeyInfo]:
         """Carrega informações das foreign keys"""
         query = """
-            SELECT
-                tc.constraint_name,
-                ku.column_name,
-                ccu.table_schema || '.' || ccu.table_name as referenced_table,
-                ccu.column_name as referenced_column,
-                rc.delete_rule,
-                rc.update_rule
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage ku
-                ON tc.constraint_name = ku.constraint_name
-            JOIN information_schema.constraint_column_usage ccu
-                ON tc.constraint_name = ccu.constraint_name
-            JOIN information_schema.referential_constraints rc
-                ON tc.constraint_name = rc.constraint_name
-            WHERE tc.constraint_type = 'FOREIGN KEY'
-                AND tc.table_schema = %s
-                AND tc.table_name = %s
-            ORDER BY tc.constraint_name, ku.ordinal_position
-        """
+                SELECT tc.constraint_name,
+                       ku.column_name,
+                       ccu.table_schema || '.' || ccu.table_name as referenced_table,
+                       ccu.column_name                           as referenced_column,
+                       rc.delete_rule,
+                       rc.update_rule
+                FROM information_schema.table_constraints tc
+                         JOIN information_schema.key_column_usage ku
+                              ON tc.constraint_name = ku.constraint_name
+                         JOIN information_schema.constraint_column_usage ccu
+                              ON tc.constraint_name = ccu.constraint_name
+                         JOIN information_schema.referential_constraints rc
+                              ON tc.constraint_name = rc.constraint_name
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND tc.table_schema = %s
+                  AND tc.table_name = %s
+                ORDER BY tc.constraint_name, ku.ordinal_position \
+                """
 
         cursor.execute(query, (schema, table_name))
         rows = cursor.fetchall()
@@ -481,7 +474,8 @@ class PostgreSQLTableLoader(TableLoaderBase):
             logger.warning(f"Erro ao gerar DDL: {e}")
             return f"-- DDL para {schema}.{table_name}\n-- (Erro ao reconstruir: {e})"
 
-    def _generate_ddl_from_info(self, columns: List[ColumnInfo], foreign_keys: List[ForeignKeyInfo], schema: str, table_name: str) -> str:
+    def _generate_ddl_from_info(self, columns: List[ColumnInfo], foreign_keys: List[ForeignKeyInfo], schema: str,
+                                table_name: str) -> str:
         """Gera DDL a partir das informações coletadas"""
         ddl_lines = [f"CREATE TABLE {schema}.{table_name} ("]
 
@@ -517,12 +511,12 @@ class PostgreSQLTableLoader(TableLoaderBase):
     def _get_table_stats(self, cursor, schema: str, table_name: str) -> Tuple[Optional[int], Optional[str]]:
         """Obtém estatísticas da tabela (row count, size)"""
         query = """
-            SELECT
-                n_live_tup as row_count,
-                pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as size
-            FROM pg_stat_user_tables
-            WHERE schemaname = %s AND relname = %s
-        """
+                SELECT n_live_tup                                                           as row_count,
+                       pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) as size
+                FROM pg_stat_user_tables
+                WHERE schemaname = %s
+                  AND relname = %s \
+                """
         try:
             cursor.execute(query, (schema, table_name))
             row = cursor.fetchone()
@@ -540,4 +534,3 @@ class PostgreSQLTableLoader(TableLoaderBase):
 # Registra o loader no factory
 if PSYCOPG2_AVAILABLE:
     register_table_loader(DatabaseType.POSTGRESQL, PostgreSQLTableLoader)
-

@@ -8,11 +8,13 @@ from typing import Dict, List, Tuple, Optional
 try:
     import mysql.connector
     from mysql.connector import Error as MySQLError
+
     MYSQL_AVAILABLE = True
     MYSQL_DRIVER = 'mysql-connector'
 except ImportError:
     try:
         import pymysql
+
         MYSQL_AVAILABLE = True
         MYSQL_DRIVER = 'pymysql'
     except ImportError:
@@ -91,10 +93,10 @@ class MySQLTableLoader(TableLoaderBase):
 
             # Lista tabelas
             query = """
-                SELECT TABLE_SCHEMA, TABLE_NAME
-                FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_TYPE = 'BASE TABLE'
-            """
+                    SELECT TABLE_SCHEMA, TABLE_NAME
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_TYPE = 'BASE TABLE' \
+                    """
 
             params = []
             if config.schema:
@@ -141,7 +143,7 @@ class MySQLTableLoader(TableLoaderBase):
                 raise TableLoadError(f"Erro ao carregar tabelas do MySQL: {e}")
 
     def _load_table_details(
-        self, cursor, schema: str, table_name: str, config: DatabaseConfig
+            self, cursor, schema: str, table_name: str, config: DatabaseConfig
     ) -> TableInfo:
         """Carrega detalhes completos de uma tabela"""
 
@@ -180,49 +182,43 @@ class MySQLTableLoader(TableLoaderBase):
     def _load_columns(self, cursor, schema: str, table_name: str) -> List[ColumnInfo]:
         """Carrega informações das colunas"""
         query = """
-            SELECT
-                c.COLUMN_NAME,
-                c.DATA_TYPE,
-                c.CHARACTER_MAXIMUM_LENGTH,
-                c.NUMERIC_PRECISION,
-                c.NUMERIC_SCALE,
-                c.IS_NULLABLE,
-                c.COLUMN_DEFAULT,
-                c.COLUMN_COMMENT,
-                CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_PK,
-                CASE WHEN fk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_FK,
-                fk.REFERENCED_TABLE,
-                fk.REFERENCED_COLUMN
-            FROM INFORMATION_SCHEMA.COLUMNS c
-            LEFT JOIN (
-                SELECT ku.COLUMN_NAME
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                    ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-                    AND tc.TABLE_SCHEMA = %s
-                    AND tc.TABLE_NAME = %s
-            ) pk ON pk.COLUMN_NAME = c.COLUMN_NAME
-            LEFT JOIN (
-                SELECT
-                    ku.COLUMN_NAME,
-                    CONCAT(ccu.TABLE_SCHEMA, '.', ccu.TABLE_NAME) as REFERENCED_TABLE,
-                    ccu.COLUMN_NAME as REFERENCED_COLUMN
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                    ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-                JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
-                    ON tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
-                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ccu
-                    ON rc.UNIQUE_CONSTRAINT_NAME = ccu.CONSTRAINT_NAME
-                WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
-                    AND tc.TABLE_SCHEMA = %s
-                    AND tc.TABLE_NAME = %s
-            ) fk ON fk.COLUMN_NAME = c.COLUMN_NAME
-            WHERE c.TABLE_SCHEMA = %s
-                AND c.TABLE_NAME = %s
-            ORDER BY c.ORDINAL_POSITION
-        """
+                SELECT c.COLUMN_NAME,
+                       c.DATA_TYPE,
+                       c.CHARACTER_MAXIMUM_LENGTH,
+                       c.NUMERIC_PRECISION,
+                       c.NUMERIC_SCALE,
+                       c.IS_NULLABLE,
+                       c.COLUMN_DEFAULT,
+                       c.COLUMN_COMMENT,
+                       CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_PK,
+                       CASE WHEN fk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_FK,
+                       fk.REFERENCED_TABLE,
+                       fk.REFERENCED_COLUMN
+                FROM INFORMATION_SCHEMA.COLUMNS c
+                         LEFT JOIN (SELECT ku.COLUMN_NAME
+                                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                                             JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                                                  ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                                    WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                                      AND tc.TABLE_SCHEMA = %s
+                                      AND tc.TABLE_NAME = %s) pk ON pk.COLUMN_NAME = c.COLUMN_NAME
+                         LEFT JOIN (SELECT ku.COLUMN_NAME,
+                                           CONCAT(ccu.TABLE_SCHEMA, '.', ccu.TABLE_NAME) as REFERENCED_TABLE,
+                                           ccu.COLUMN_NAME                               as REFERENCED_COLUMN
+                                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                                             JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                                                  ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                                             JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+                                                  ON tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+                                             JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ccu
+                                                  ON rc.UNIQUE_CONSTRAINT_NAME = ccu.CONSTRAINT_NAME
+                                    WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+                                      AND tc.TABLE_SCHEMA = %s
+                                      AND tc.TABLE_NAME = %s) fk ON fk.COLUMN_NAME = c.COLUMN_NAME
+                WHERE c.TABLE_SCHEMA = %s
+                  AND c.TABLE_NAME = %s
+                ORDER BY c.ORDINAL_POSITION \
+                """
 
         cursor.execute(query, (schema, table_name, schema, table_name, schema, table_name))
         rows = cursor.fetchall()
@@ -256,24 +252,21 @@ class MySQLTableLoader(TableLoaderBase):
     def _load_indexes(self, cursor, schema: str, table_name: str) -> List[IndexInfo]:
         """Carrega informações dos índices"""
         query = """
-            SELECT
-                s.INDEX_NAME,
-                s.NON_UNIQUE,
-                s.INDEX_TYPE,
-                GROUP_CONCAT(s.COLUMN_NAME ORDER BY s.SEQ_IN_INDEX) as COLUMNS,
-                CASE WHEN pk.CONSTRAINT_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_PRIMARY
-            FROM INFORMATION_SCHEMA.STATISTICS s
-            LEFT JOIN (
-                SELECT CONSTRAINT_NAME
-                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-                WHERE CONSTRAINT_TYPE = 'PRIMARY KEY'
-                    AND TABLE_SCHEMA = %s
-                    AND TABLE_NAME = %s
-            ) pk ON s.INDEX_NAME = pk.CONSTRAINT_NAME
-            WHERE s.TABLE_SCHEMA = %s
-                AND s.TABLE_NAME = %s
-            GROUP BY s.INDEX_NAME, s.NON_UNIQUE, s.INDEX_TYPE, pk.CONSTRAINT_NAME
-        """
+                SELECT s.INDEX_NAME,
+                       s.NON_UNIQUE,
+                       s.INDEX_TYPE,
+                       GROUP_CONCAT(s.COLUMN_NAME ORDER BY s.SEQ_IN_INDEX)        as COLUMNS,
+                       CASE WHEN pk.CONSTRAINT_NAME IS NOT NULL THEN 1 ELSE 0 END as IS_PRIMARY
+                FROM INFORMATION_SCHEMA.STATISTICS s
+                         LEFT JOIN (SELECT CONSTRAINT_NAME
+                                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+                                    WHERE CONSTRAINT_TYPE = 'PRIMARY KEY'
+                                      AND TABLE_SCHEMA = %s
+                                      AND TABLE_NAME = %s) pk ON s.INDEX_NAME = pk.CONSTRAINT_NAME
+                WHERE s.TABLE_SCHEMA = %s
+                  AND s.TABLE_NAME = %s
+                GROUP BY s.INDEX_NAME, s.NON_UNIQUE, s.INDEX_TYPE, pk.CONSTRAINT_NAME \
+                """
 
         cursor.execute(query, (schema, table_name, schema, table_name))
         rows = cursor.fetchall()
@@ -296,25 +289,24 @@ class MySQLTableLoader(TableLoaderBase):
     def _load_foreign_keys(self, cursor, schema: str, table_name: str) -> List[ForeignKeyInfo]:
         """Carrega informações das foreign keys"""
         query = """
-            SELECT
-                tc.CONSTRAINT_NAME,
-                GROUP_CONCAT(ku.COLUMN_NAME ORDER BY ku.ORDINAL_POSITION) as COLUMNS,
-                CONCAT(ccu.TABLE_SCHEMA, '.', ccu.TABLE_NAME) as REFERENCED_TABLE,
-                GROUP_CONCAT(ccu.COLUMN_NAME ORDER BY ccu.ORDINAL_POSITION) as REFERENCED_COLUMNS,
-                rc.DELETE_RULE,
-                rc.UPDATE_RULE
-            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-            JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
-                ON tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
-            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ccu
-                ON rc.UNIQUE_CONSTRAINT_NAME = ccu.CONSTRAINT_NAME
-            WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
-                AND tc.TABLE_SCHEMA = %s
-                AND tc.TABLE_NAME = %s
-            GROUP BY tc.CONSTRAINT_NAME, ccu.TABLE_SCHEMA, ccu.TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE
-        """
+                SELECT tc.CONSTRAINT_NAME,
+                       GROUP_CONCAT(ku.COLUMN_NAME ORDER BY ku.ORDINAL_POSITION)   as COLUMNS,
+                       CONCAT(ccu.TABLE_SCHEMA, '.', ccu.TABLE_NAME)               as REFERENCED_TABLE,
+                       GROUP_CONCAT(ccu.COLUMN_NAME ORDER BY ccu.ORDINAL_POSITION) as REFERENCED_COLUMNS,
+                       rc.DELETE_RULE,
+                       rc.UPDATE_RULE
+                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                         JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                              ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                         JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+                              ON tc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+                         JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ccu
+                              ON rc.UNIQUE_CONSTRAINT_NAME = ccu.CONSTRAINT_NAME
+                WHERE tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+                  AND tc.TABLE_SCHEMA = %s
+                  AND tc.TABLE_NAME = %s
+                GROUP BY tc.CONSTRAINT_NAME, ccu.TABLE_SCHEMA, ccu.TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE \
+                """
 
         cursor.execute(query, (schema, table_name))
         rows = cursor.fetchall()
@@ -322,7 +314,8 @@ class MySQLTableLoader(TableLoaderBase):
         foreign_keys = []
         for row in rows:
             columns_list = [col.strip() for col in row['COLUMNS'].split(',')] if row['COLUMNS'] else []
-            referenced_columns_list = [col.strip() for col in row['REFERENCED_COLUMNS'].split(',')] if row['REFERENCED_COLUMNS'] else []
+            referenced_columns_list = [col.strip() for col in row['REFERENCED_COLUMNS'].split(',')] if row[
+                'REFERENCED_COLUMNS'] else []
 
             foreign_keys.append(ForeignKeyInfo(
                 name=row['CONSTRAINT_NAME'],
@@ -382,12 +375,12 @@ class MySQLTableLoader(TableLoaderBase):
     def _get_table_stats(self, cursor, schema: str, table_name: str) -> Tuple[Optional[int], Optional[str]]:
         """Obtém estatísticas da tabela"""
         query = """
-            SELECT
-                TABLE_ROWS as ROW_COUNT,
-                ROUND(((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024), 2) as SIZE_MB
-            FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
-        """
+                SELECT TABLE_ROWS                                             as ROW_COUNT,
+                       ROUND(((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024), 2) as SIZE_MB
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = %s
+                  AND TABLE_NAME = %s \
+                """
         try:
             cursor.execute(query, (schema, table_name))
             row = cursor.fetchone()
@@ -404,4 +397,3 @@ class MySQLTableLoader(TableLoaderBase):
 # Registra o loader no factory
 if MYSQL_AVAILABLE:
     register_table_loader(DatabaseType.MYSQL, MySQLTableLoader)
-
