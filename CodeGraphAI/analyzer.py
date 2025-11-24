@@ -1316,14 +1316,17 @@ class ProcedureAnalyzer:
                         info = self.procedures[node]
                         complexity_class = "high" if info.complexity_score >= 8 else \
                                          "medium" if info.complexity_score >= 5 else "low"
+                        # Sanitiza label: remove caracteres problemáticos
                         label = f"{node}\\n[Nível {info.dependencies_level}, Complex: {info.complexity_score}]"
-                        f.write(f'    {node.replace(".", "_").replace("-", "_")}["{label}"]:::{complexity_class}\n')
+                        label = label.replace('"', "'").replace('[', '(').replace(']', ')')
+                        node_id = node.replace(".", "_").replace("-", "_").replace(" ", "_")
+                        f.write(f'    {node_id}["{label}"]:::{complexity_class}\n')
 
                 # Adiciona arestas
                 for edge in self.dependency_graph.edges():
                     if edge[0] in nodes and edge[1] in nodes:
-                        source = edge[0].replace(".", "_").replace("-", "_")
-                        target = edge[1].replace(".", "_").replace("-", "_")
+                        source = edge[0].replace(".", "_").replace("-", "_").replace(" ", "_")
+                        target = edge[1].replace(".", "_").replace("-", "_").replace(" ", "_")
                         f.write(f"    {source} --> {target}\n")
 
                 # Define classes de estilo
@@ -1365,14 +1368,16 @@ class ProcedureAnalyzer:
                             info = self.procedures[proc]
                             complexity_class = "high" if info.complexity_score >= 8 else \
                                              "medium" if info.complexity_score >= 5 else "low"
+                            # Sanitiza label
                             label = f"{proc}\\n[Nível {level}, Complex: {info.complexity_score}]"
-                            proc_id = proc.replace(".", "_").replace("-", "_")
+                            label = label.replace('"', "'").replace('[', '(').replace(']', ')')
+                            proc_id = proc.replace(".", "_").replace("-", "_").replace(" ", "_")
                             f.write(f'    {proc_id}["{label}"]:::{complexity_class}\n')
 
                             # Adiciona arestas para dependências
                             for dep in info.called_procedures:
                                 if dep in self.procedures:
-                                    dep_id = dep.replace(".", "_").replace("-", "_")
+                                    dep_id = dep.replace(".", "_").replace("-", "_").replace(" ", "_")
                                     f.write(f"    {proc_id} --> {dep_id}\n")
 
                 # Define classes de estilo
@@ -1413,28 +1418,39 @@ class ProcedureAnalyzer:
                 f.write(f"**Complexidade:** {info.complexity_score}/10\n")
                 f.write(f"**Nível de Dependência:** {info.dependencies_level}\n\n")
                 f.write("```mermaid\nflowchart TD\n")
-                f.write(f'    Start([Início: {proc_name}])\n')
+
+                # Sanitiza nome da procedure para o nó inicial
+                safe_proc_name = proc_name.replace('"', "'")
+                f.write(f'    Start([Início: {safe_proc_name}])\n')
 
                 # Parâmetros
                 if info.parameters:
                     f.write(f'    Params[Parâmetros: {len(info.parameters)}]\n')
                     f.write("    Start --> Params\n")
                     for param in info.parameters:
-                        f.write(f'    Params --> P{param["position"]}["{param["name"]}: {param["type"]} ({param["direction"]})"]\n')
+                        # Sanitiza tipo e nome do parâmetro
+                        param_name = param["name"].replace('"', "'")
+                        param_type = param["type"].replace('"', "'").replace("-", "_").replace(" ", "_")
+                        param_direction = param["direction"]
+                        f.write(f'    Params --> P{param["position"]}["{param_name}: {param_type} ({param_direction})"]\n')
 
                 # Procedures chamadas
                 if info.called_procedures:
                     f.write('    Procs[Procedures Chamadas]\n')
                     f.write("    Start --> Procs\n")
                     for dep_proc in info.called_procedures:
-                        f.write(f'    Procs --> Proc_{dep_proc.replace(".", "_").replace("-", "_")}["{dep_proc}"]\n')
+                        safe_dep_name = dep_proc.replace('"', "'")
+                        proc_id = dep_proc.replace(".", "_").replace("-", "_").replace(" ", "_")
+                        f.write(f'    Procs --> Proc_{proc_id}["{safe_dep_name}"]\n')
 
                 # Tabelas acessadas
                 if info.called_tables:
                     f.write('    Tables[Tabelas Acessadas]\n')
                     f.write("    Start --> Tables\n")
                     for table in info.called_tables:
-                        f.write(f'    Tables --> Table_{table.replace(".", "_").replace("-", "_")}["{table}"]\n')
+                        safe_table_name = table.replace('"', "'")
+                        table_id = table.replace(".", "_").replace("-", "_").replace(" ", "_")
+                        f.write(f'    Tables --> Table_{table_id}["{safe_table_name}"]\n')
 
                 f.write(f'    End([Fim])\n')
                 f.write("    Start --> End\n")

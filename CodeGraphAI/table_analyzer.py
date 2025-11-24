@@ -666,11 +666,25 @@ class TableAnalyzer:
                         other_cols = [col.name for col in info.columns[:5] if col.name not in pk_cols]
                         all_cols = pk_cols + other_cols
 
+                        # Remove duplicatas mantendo ordem
+                        seen = set()
+                        unique_cols = []
+                        for col in all_cols[:8]:
+                            if col not in seen:
+                                seen.add(col)
+                                unique_cols.append(col)
+
                         f.write(f'    {self._sanitize_mermaid_name(node)} {{\n')
-                        for col in all_cols[:8]:  # Limita a 8 colunas por tabela
+                        for col in unique_cols:
                             col_info = next((c for c in info.columns if c.name == col), None)
                             if col_info:
-                                col_type = col_info.data_type.split('(')[0]  # Remove tamanho
+                                # Sanitiza tipo de dados: remove tamanho, substitui hífens/espaços
+                                col_type = col_info.data_type.split('(')[0].strip()
+                                col_type = col_type.replace('-', '_').replace(' ', '_')
+                                # Limita tamanho do tipo para evitar problemas
+                                if len(col_type) > 30:
+                                    col_type = col_type[:30]
+
                                 pk_marker = " PK" if col_info.is_primary_key else ""
                                 fk_marker = " FK" if col_info.is_foreign_key else ""
                                 f.write(f'        {col_info.name} {col_type}{pk_marker}{fk_marker}\n')
@@ -721,6 +735,7 @@ class TableAnalyzer:
                             complexity_class = "high" if info.complexity_score >= 8 else \
                                              "medium" if info.complexity_score >= 5 else "low"
                             label = f"{table_name}\\n[Complex: {info.complexity_score}, FKs: {len(info.foreign_keys)}]"
+                            label = self._sanitize_mermaid_label(label)
                             node_id = self._sanitize_mermaid_name(table_name)
                             f.write(f'        {node_id}["{label}"]:::{complexity_class}\n')
                     f.write('    end\n')
@@ -746,4 +761,8 @@ class TableAnalyzer:
     def _sanitize_mermaid_name(self, name: str) -> str:
         """Sanitiza nome para uso em diagramas Mermaid"""
         return name.replace(".", "_").replace("-", "_").replace(" ", "_")
+
+    def _sanitize_mermaid_label(self, text: str) -> str:
+        """Sanitiza texto para uso em labels Mermaid"""
+        return text.replace('"', "'").replace('[', '(').replace(']', ')')
 
