@@ -48,6 +48,32 @@ cp example.env environment.env
 
 ### Uso Básico
 
+#### Via CLI (Recomendado)
+
+```bash
+# Análise de tabelas (PostgreSQL)
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco --schema public
+
+# Análise de procedures (Oracle)
+python main.py analyze --analysis-type=procedures \
+    --db-type oracle \
+    --user usuario --password senha \
+    --dsn localhost:1521/ORCL --schema MEU_SCHEMA
+
+# Análise de ambos (padrão)
+python main.py analyze --analysis-type=both \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco --schema public
+```
+
+#### Via Python
+
 ```python
 from analyzer import LLMAnalyzer, ProcedureAnalyzer
 
@@ -197,6 +223,8 @@ python main.py analyze --analysis-type=both \
     --user usuario --password senha --host localhost \
     --database meu_banco --schema MEU_SCHEMA
 ```
+
+**Nota:** Veja a seção [Comandos CLI](#-comandos-cli) abaixo para exemplos completos com todos os argumentos disponíveis.
 
 **Via Python:**
 ```python
@@ -798,6 +826,307 @@ graph TD
     classDef high fill:#ff6b6b,stroke:#c92a2a,color:#fff
     classDef medium fill:#ffd93d,stroke:#f59f00,color:#000
     classDef low fill:#51cf66,stroke:#2b8a3e,color:#000
+```
+
+## 💻 Comandos CLI
+
+### Comando `analyze`
+
+Analisa tabelas e/ou procedures do banco de dados.
+
+#### Sintaxe Básica
+
+```bash
+python main.py analyze [OPÇÕES]
+```
+
+#### Argumentos Principais
+
+**Tipo de Análise:**
+- `--analysis-type [tables|procedures|both]`: Tipo de análise (padrão: `both`)
+  - `tables`: Analisa apenas tabelas (DDL, relacionamentos, índices, foreign keys)
+  - `procedures`: Analisa apenas stored procedures
+  - `both`: Analisa ambos (padrão)
+
+**Configuração de Banco de Dados:**
+- `--db-type [oracle|postgresql|mssql|mysql]`: Tipo de banco (padrão: `postgresql`)
+- `--user USER`: Usuário do banco de dados
+- `--password PASSWORD`: Senha do banco de dados
+- `--host HOST`: Host do banco de dados
+- `--port PORT`: Porta do banco de dados
+- `--database DATABASE`: Nome do banco de dados (obrigatório para PostgreSQL, SQL Server, MySQL)
+- `--dsn DSN`: DSN completo (para Oracle: `host:port/service`)
+- `--schema SCHEMA`: Schema específico para análise
+- `--limit N`: Limite de entidades para análise (opcional)
+
+**Configuração LLM:**
+- `--model MODEL`: Nome do modelo LLM (sobrescreve config)
+- `--device [cuda|cpu]`: Dispositivo para modelos locais (sobrescreve config)
+
+**Exportação:**
+- `--export-json`: Exportar JSON (padrão: `True`)
+- `--export-png`: Exportar grafo PNG (padrão: `True`)
+- `--export-mermaid`: Exportar diagramas Mermaid (padrão: `False`)
+
+**Otimização (Análise de Tabelas):**
+- `--batch-size N`: Tamanho do batch para análise de tabelas (padrão: `5`, `1` desabilita batch)
+- `--parallel-workers N`: Número de workers paralelos (padrão: `2`, `1` desabilita paralelismo)
+
+**Logging:**
+- `--log-file PATH`: Arquivo de log específico (sobrescreve auto-logging)
+- `--no-auto-log`: Desabilita criação automática de logs
+- `--verbose, -v`: Modo verbose (nível DEBUG)
+
+**Outros:**
+- `--output-dir, -o PATH`: Diretório de saída (padrão: `./output`)
+- `--dry-run`: Modo dry-run (valida sem executar)
+
+#### Exemplos Completos
+
+**PostgreSQL - Análise de Tabelas:**
+```bash
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres \
+    --password minha_senha \
+    --host localhost \
+    --port 5432 \
+    --database optomate \
+    --schema public \
+    --batch-size 5 \
+    --parallel-workers 2 \
+    --export-json --export-png --export-mermaid
+```
+
+**PostgreSQL - Análise de Procedures:**
+```bash
+python main.py analyze --analysis-type=procedures \
+    --db-type postgresql \
+    --user postgres \
+    --password minha_senha \
+    --host localhost \
+    --port 5432 \
+    --database optomate \
+    --schema public \
+    --limit 50
+```
+
+**PostgreSQL - Análise Completa (Tabelas + Procedures):**
+```bash
+python main.py analyze --analysis-type=both \
+    --db-type postgresql \
+    --user postgres \
+    --password minha_senha \
+    --host localhost \
+    --port 5432 \
+    --database optomate \
+    --schema public \
+    --batch-size 5 \
+    --parallel-workers 2 \
+    --export-json --export-png --export-mermaid
+```
+
+**Oracle - Análise de Procedures:**
+```bash
+python main.py analyze --analysis-type=procedures \
+    --db-type oracle \
+    --user usuario \
+    --password senha \
+    --dsn localhost:1521/ORCL \
+    --schema MEU_SCHEMA \
+    --limit 100
+```
+
+**SQL Server - Análise de Tabelas:**
+```bash
+python main.py analyze --analysis-type=tables \
+    --db-type mssql \
+    --user sa \
+    --password senha \
+    --host localhost \
+    --port 1433 \
+    --database meu_banco \
+    --schema dbo \
+    --batch-size 3 \
+    --parallel-workers 1
+```
+
+**MySQL - Análise Completa:**
+```bash
+python main.py analyze --analysis-type=both \
+    --db-type mysql \
+    --user root \
+    --password senha \
+    --host localhost \
+    --port 3306 \
+    --database meu_banco \
+    --batch-size 5 \
+    --parallel-workers 2
+```
+
+**Com Logging Customizado:**
+```bash
+# Usar arquivo de log específico
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco \
+    --log-file logs/analise_custom.log
+
+# Desabilitar auto-logging
+python main.py --no-auto-log analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco
+
+# Modo verbose (DEBUG)
+python main.py --verbose analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco
+```
+
+**Dry-Run (Validação sem Executar):**
+```bash
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco \
+    --dry-run
+```
+
+**Otimização de Performance:**
+```bash
+# Batch processing com paralelismo (recomendado para muitas tabelas)
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco \
+    --batch-size 5 \
+    --parallel-workers 2
+
+# Desabilitar batch (processamento sequencial original)
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco \
+    --batch-size 1
+
+# Apenas batch sem paralelismo
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco \
+    --batch-size 5 \
+    --parallel-workers 1
+```
+
+### Comando `analyze-files`
+
+Analisa procedures a partir de arquivos `.prc` locais.
+
+#### Sintaxe
+
+```bash
+python main.py analyze-files [OPÇÕES]
+```
+
+#### Argumentos
+
+- `--directory, -d PATH`: Diretório com arquivos `.prc` (obrigatório)
+- `--extension, -e EXT`: Extensão dos arquivos (padrão: `prc`)
+- `--output-dir, -o PATH`: Diretório de saída (padrão: `./output`)
+- `--model MODEL`: Nome do modelo LLM (sobrescreve config)
+- `--device [cuda|cpu]`: Dispositivo para modelos locais
+- `--export-json`: Exportar JSON (padrão: `True`)
+- `--export-png`: Exportar grafo PNG (padrão: `True`)
+- `--export-mermaid`: Exportar diagramas Mermaid (padrão: `False`)
+- `--dry-run`: Modo dry-run (valida sem executar)
+- `--log-file PATH`: Arquivo de log específico
+- `--no-auto-log`: Desabilita criação automática de logs
+- `--verbose, -v`: Modo verbose
+
+#### Exemplos
+
+```bash
+# Análise básica
+python main.py analyze-files --directory ./procedures
+
+# Com extensão customizada
+python main.py analyze-files --directory ./procedures --extension sql
+
+# Com exportação completa
+python main.py analyze-files --directory ./procedures \
+    --export-json --export-png --export-mermaid
+
+# Dry-run
+python main.py analyze-files --directory ./procedures --dry-run
+```
+
+### Comando `test-connection`
+
+Testa conectividade com banco de dados.
+
+#### Sintaxe
+
+```bash
+python main.py test-connection [OPÇÕES]
+```
+
+#### Argumentos
+
+- `--db-type [oracle|postgresql|mssql|mysql]`: Tipo de banco
+- `--user USER`: Usuário do banco
+- `--password PASSWORD`: Senha do banco
+- `--host HOST`: Host do banco
+- `--port PORT`: Porta do banco
+- `--database DATABASE`: Nome do banco (obrigatório para PostgreSQL, SQL Server, MySQL)
+- `--dsn DSN`: DSN completo (para Oracle)
+- `--log-file PATH`: Arquivo de log específico
+- `--no-auto-log`: Desabilita criação automática de logs
+- `--verbose, -v`: Modo verbose
+
+#### Exemplos
+
+```bash
+# PostgreSQL
+python main.py test-connection --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 --database meu_banco
+
+# Oracle
+python main.py test-connection --db-type oracle \
+    --user usuario --password senha \
+    --dsn localhost:1521/ORCL
+```
+
+### Sistema de Logs Automático
+
+Por padrão, CodeGraphAI cria automaticamente arquivos de log em `logs/` com o formato:
+```
+logs/{comando}_{timestamp}.log
+```
+
+Exemplo: `logs/analyze_20251124_083712.log`
+
+**Configuração:**
+- Logs são criados automaticamente em `logs/` (configurável via `CODEGRAPHAI_LOG_DIR`)
+- Auto-logging pode ser desabilitado via `--no-auto-log` ou `CODEGRAPHAI_AUTO_LOG_ENABLED=false`
+- Use `--log-file` para especificar um arquivo específico
+- Logs capturam tanto output do logging module quanto `click.echo()`
+
+**Variáveis de Ambiente:**
+```bash
+CODEGRAPHAI_LOG_DIR=./logs              # Diretório para logs
+CODEGRAPHAI_AUTO_LOG_ENABLED=true       # Habilitar auto-logging (padrão: true)
+CODEGRAPHAI_LOG_LEVEL=INFO              # Nível de log (DEBUG, INFO, WARNING, ERROR)
 ```
 
 ## 🤝 Contribuindo
