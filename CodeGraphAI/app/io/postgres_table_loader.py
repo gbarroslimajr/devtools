@@ -25,7 +25,28 @@ logger = logging.getLogger(__name__)
 
 
 class PostgreSQLTableLoader(TableLoaderBase):
-    """Loader de tabelas para PostgreSQL"""
+    """
+    Loader de tabelas para PostgreSQL
+
+    Este loader carrega metadados completos de tabelas do PostgreSQL, incluindo:
+    - Estrutura de colunas (nome, tipo, nullable, default, etc.)
+    - Primary keys
+    - Foreign keys e relacionamentos
+    - Índices
+    - Comentários
+    - Estatísticas (row count, size)
+
+    Versão 2.0 - Arquitetura Melhorada:
+        A partir da versão 2.0, as foreign keys são carregadas separadamente
+        das colunas através do método _load_fk_column_mapping(). Isso evita
+        duplicatas causadas por múltiplas constraints na mesma coluna e
+        melhora a separação de concerns.
+
+    Notas Importantes:
+        - Se uma coluna tem múltiplas FKs, apenas a primeira é retornada
+        - DISTINCT ON é usado nas queries para garantir unicidade
+        - O loader respeita .gitignore e usa cache quando disponível
+    """
 
     def __init__(self):
         """Inicializa o loader PostgreSQL"""
@@ -280,9 +301,19 @@ class PostgreSQLTableLoader(TableLoaderBase):
         )
 
     def _load_columns(self, cursor, schema: str, table_name: str) -> List[ColumnInfo]:
-        """Carrega informações das colunas"""
+        """
+        Carrega informações das colunas (sem FK inline para evitar duplicatas)
+
+        Note:
+            A partir da versão 2.0, as foreign keys são carregadas separadamente
+            via _load_fk_column_mapping() para evitar duplicatas causadas por
+            múltiplas constraints na mesma coluna.
+        """
+        # Query simplificada - apenas colunas básicas + PK (sem FK inline)
+        # DISTINCT ON garante que não haja duplicatas mesmo sem FK inline
         query = """
-                SELECT c.column_name,
+                SELECT DISTINCT ON (c.column_name)
+                       c.column_name,
                        c.data_type,
                        c.is_nullable,
                        c.column_default,
@@ -290,37 +321,24 @@ class PostgreSQLTableLoader(TableLoaderBase):
                        c.numeric_precision,
                        c.numeric_scale,
                        CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk,
-                       CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_fk,
-                       fk.referenced_table,
-                       fk.referenced_column,
-                       col_description(pgc.oid, c.ordinal_position)                  as column_comment
+                       col_description(pgc.oid, c.ordinal_position)                  as column_comment,
+                       c.ordinal_position
                 FROM information_schema.columns c
                          JOIN pg_class pgc ON pgc.relname = c.table_name
                          JOIN pg_namespace pgn ON pgn.oid = pgc.relnamespace AND pgn.nspname = c.table_schema
                          LEFT JOIN (SELECT ku.column_name
-                                    FROM information_schema.table_constraints tc
-                                             JOIN information_schema.key_column_usage ku
-                                                  ON tc.constraint_name = ku.constraint_name
+                                    FROM information_schema.key_column_usage ku
+                                    JOIN information_schema.table_constraints tc
+                                         ON tc.constraint_name = ku.constraint_name
                                     WHERE tc.constraint_type = 'PRIMARY KEY'
                                       AND tc.table_schema = %s
                                       AND tc.table_name = %s) pk ON pk.column_name = c.column_name
-                         LEFT JOIN (SELECT ku.column_name,
-                                           ccu.table_schema || '.' || ccu.table_name as referenced_table,
-                                           ccu.column_name                           as referenced_column
-                                    FROM information_schema.table_constraints tc
-                                             JOIN information_schema.key_column_usage ku
-                                                  ON tc.constraint_name = ku.constraint_name
-                                             JOIN information_schema.constraint_column_usage ccu
-                                                  ON tc.constraint_name = ccu.constraint_name
-                                    WHERE tc.constraint_type = 'FOREIGN KEY'
-                                      AND tc.table_schema = %s
-                                      AND tc.table_name = %s) fk ON fk.column_name = c.column_name
                 WHERE c.table_schema = %s
                   AND c.table_name = %s
-                ORDER BY c.ordinal_position \
+                ORDER BY c.column_name, c.ordinal_position \
                 """
 
-        cursor.execute(query, (schema, table_name, schema, table_name, schema, table_name))
+        cursor.execute(query, (schema, table_name, schema, table_name))
         rows = cursor.fetchall()
 
         columns = []
@@ -341,13 +359,73 @@ class PostgreSQLTableLoader(TableLoaderBase):
                 nullable=row['is_nullable'] == 'YES',
                 default_value=row['column_default'],
                 is_primary_key=row['is_pk'],
-                is_foreign_key=row['is_fk'],
-                foreign_key_table=row.get('referenced_table'),
-                foreign_key_column=row.get('referenced_column'),
+                is_foreign_key=False,  # Será preenchido depois
+                foreign_key_table=None,
+                foreign_key_column=None,
                 comments=row.get('column_comment')
             ))
 
+        # Enriquecer com informações de FK (separadamente para evitar duplicatas)
+        fk_map = self._load_fk_column_mapping(cursor, schema, table_name)
+        for col in columns:
+            if col.name in fk_map:
+                col.is_foreign_key = True
+                col.foreign_key_table = fk_map[col.name]['table']
+                col.foreign_key_column = fk_map[col.name]['column']
+
         return columns
+
+    def _load_fk_column_mapping(
+        self, cursor, schema: str, table_name: str
+    ) -> Dict[str, Dict[str, str]]:
+        """
+        Carrega mapeamento de colunas FK (sem duplicatas)
+
+        Args:
+            cursor: Database cursor
+            schema: Schema name
+            table_name: Table name
+
+        Returns:
+            Dict mapeando column_name -> {table, column}
+
+        Note:
+            Se uma coluna tem múltiplas FKs, apenas a primeira é retornada.
+            Isso é uma simplificação, mas evita duplicatas e é suficiente
+            para a maioria dos casos de uso.
+        """
+        query = """
+            SELECT DISTINCT
+                   ku.column_name,
+                   ccu.table_schema || '.' || ccu.table_name as referenced_table,
+                   ccu.column_name as referenced_column
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage ku
+                 ON tc.constraint_name = ku.constraint_name
+            JOIN information_schema.constraint_column_usage ccu
+                 ON tc.constraint_name = ccu.constraint_name
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema = %s
+              AND tc.table_name = %s
+        """
+        cursor.execute(query, (schema, table_name))
+
+        fk_map = {}
+        for row in cursor.fetchall():
+            col_name = row['column_name']
+            # Pega apenas a primeira referência para cada coluna
+            if col_name not in fk_map:
+                fk_map[col_name] = {
+                    'table': row['referenced_table'],
+                    'column': row['referenced_column']
+                }
+            else:
+                logger.debug(
+                    f"Column '{col_name}' in {schema}.{table_name} has multiple FK constraints, "
+                    f"using first: {fk_map[col_name]['table']}"
+                )
+
+        return fk_map
 
     def _load_indexes(self, cursor, schema: str, table_name: str) -> List[IndexInfo]:
         """Carrega informações dos índices"""

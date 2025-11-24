@@ -1,4 +1,3 @@
 """
-Testes para camada de I/O
+IO tests package
 """
-

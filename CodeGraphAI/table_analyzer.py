@@ -566,6 +566,31 @@ class TableAnalyzer:
             # Em caso de ciclos, todas ficam no nível 0
             return {0: list(self.tables.keys())}
 
+    def _serialize_token_usage(self, obj: Any) -> Any:
+        """
+        Converte TokenUsage e estruturas aninhadas para formato serializável
+
+        Args:
+            obj: Objeto a serializar (TokenUsage, dict, list, ou primitivo)
+
+        Returns:
+            Objeto serializável (dict, list, ou primitivo)
+        """
+        from app.core.models import TokenUsage
+
+        if isinstance(obj, TokenUsage):
+            return {
+                'prompt_tokens': obj.prompt_tokens,
+                'completion_tokens': obj.completion_tokens,
+                'total_tokens': obj.total_tokens
+            }
+        elif isinstance(obj, dict):
+            return {k: self._serialize_token_usage(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._serialize_token_usage(item) for item in obj]
+        else:
+            return obj
+
     def export_results(self, output_file: str = "table_analysis.json") -> None:
         """
         Exporta resultados para JSON
@@ -622,7 +647,8 @@ class TableAnalyzer:
             if token_stats or token_metrics_list:
                 results['token_metrics'] = {}
                 if token_stats:
-                    results['token_metrics']['statistics'] = token_stats
+                    # Serializar TokenUsage para dict
+                    results['token_metrics']['statistics'] = self._serialize_token_usage(token_stats)
                 if token_metrics_list:
                     results['token_metrics']['detailed'] = token_metrics_list
 

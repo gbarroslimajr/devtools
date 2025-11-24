@@ -6,8 +6,8 @@ LangChain agent that uses tools to analyze code intelligently
 import logging
 from typing import List, Dict, Any, Optional
 
-from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+# LangChain 1.0+ imports
+from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
@@ -47,36 +47,19 @@ class CodeAnalysisAgent:
         self.verbose = verbose
         self.max_iterations = max_iterations
         self.max_execution_time = max_execution_time
-        self.agent_executor: Optional[AgentExecutor] = None
+        self.agent_graph = None
 
         self._initialize_agent()
 
     def _initialize_agent(self) -> None:
-        """Initialize the agent executor with tools"""
+        """Initialize the agent graph with tools (LangChain 1.0+ API)"""
         try:
-            # Create prompt
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", self._get_system_prompt()),
-                ("user", "{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
-            ])
-
-            # Create agent
-            agent = create_openai_tools_agent(
-                llm=self.llm,
+            # Create agent using LangChain 1.0+ API
+            self.agent_graph = create_agent(
+                model=self.llm,
                 tools=self.tools,
-                prompt=prompt
-            )
-
-            # Create executor
-            self.agent_executor = AgentExecutor(
-                agent=agent,
-                tools=self.tools,
-                verbose=self.verbose,
-                return_intermediate_steps=True,
-                max_iterations=self.max_iterations,
-                max_execution_time=self.max_execution_time,
-                handle_parsing_errors=True
+                system_prompt=self._get_system_prompt(),
+                debug=self.verbose
             )
 
             logger.info(f"Agent initialized with {len(self.tools)} tools")
@@ -162,7 +145,7 @@ Sempre fundamente suas respostas com dados obtidos das tools."""
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Execute analysis using the agent
+        Execute analysis using the agent (LangChain 1.0+ API)
 
         Args:
             query: User question or command
@@ -171,35 +154,80 @@ Sempre fundamente suas respostas com dados obtidos das tools."""
         Returns:
             Dict with answer and intermediate steps
         """
-        if not self.agent_executor:
+        if not self.agent_graph:
             raise RuntimeError("Agent not initialized")
 
         try:
             logger.info(f"Executing query: {query}")
 
-            result = self.agent_executor.invoke({
-                "input": query,
-                **kwargs
-            })
+            # Invoke agent graph (LangChain 1.0+ API)
+            config = {"configurable": {"thread_id": "1"}}
+            result = self.agent_graph.invoke(
+                {"messages": [("user", query)]},
+                config=config
+            )
 
-            # Extract tool calls from intermediate steps
+            # Extract answer from messages (LangChain 1.0+ structure)
+            messages = result.get("messages", [])
+            answer = ""
             tool_calls = []
-            if "intermediate_steps" in result:
-                for step in result["intermediate_steps"]:
-                    if len(step) >= 2:
-                        action, observation = step[0], step[1]
+
+            # Process messages to extract answer and tool calls
+            for msg in messages:
+                # Handle different message types
+                if hasattr(msg, 'content'):
+                    content = msg.content
+                elif isinstance(msg, dict):
+                    content = msg.get("content", "")
+                else:
+                    content = str(msg)
+
+                if content:
+                    if isinstance(content, str):
+                        answer += content + "\n"
+                    elif isinstance(content, list):
+                        for item in content:
+                            if isinstance(item, dict):
+                                if item.get("type") == "text":
+                                    answer += item.get("text", "") + "\n"
+                                elif item.get("type") == "tool_use":
+                                    tool_calls.append({
+                                        "tool": item.get("name", "unknown"),
+                                        "input": item.get("input", {}),
+                                        "id": item.get("id", "")
+                                    })
+                            elif isinstance(item, str):
+                                answer += item + "\n"
+
+                # Also check for tool calls in message attributes
+                if hasattr(msg, 'tool_calls'):
+                    for tool_call in msg.tool_calls:
                         tool_calls.append({
-                            "tool": action.tool if hasattr(action, 'tool') else str(action),
-                            "input": action.tool_input if hasattr(action, 'tool_input') else {},
-                            "output": observation[:200] if isinstance(observation, str) else str(observation)[:200]
+                            "tool": getattr(tool_call, 'name', 'unknown'),
+                            "input": getattr(tool_call, 'args', {}),
+                            "id": getattr(tool_call, 'id', '')
                         })
+
+            # If no answer found, try to get from result directly
+            if not answer.strip():
+                if isinstance(result, dict):
+                    # Try different possible keys
+                    answer = result.get("output", result.get("response", result.get("answer", "")))
+                elif hasattr(result, 'content'):
+                    answer = str(result.content)
+                else:
+                    answer = str(result)
+
+            # Clean answer
+            answer = answer.strip()
 
             return {
                 "success": True,
-                "answer": result.get("output", ""),
-                "intermediate_steps": result.get("intermediate_steps", []),
+                "answer": answer if answer else "Resposta não disponível",
+                "intermediate_steps": [],
                 "tool_calls": tool_calls,
-                "tool_call_count": len(tool_calls)
+                "tool_call_count": len(tool_calls),
+                "raw_result": result
             }
 
         except Exception as e:

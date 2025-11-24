@@ -386,12 +386,22 @@ class LLMAnalyzer:
         if not config or not config.get('api_key'):
             raise LLMAnalysisError("OpenAI API key é obrigatória")
 
+        # Lista de modelos que não suportam temperature
+        MODELS_WITHOUT_TEMPERATURE = ['o3-mini', 'o3', 'o1', 'o1-preview', 'o1-mini']
+
+        model = config.get('model', 'gpt-5.1')
         kwargs = {
-            'model': config.get('model', 'gpt-5.1'),
-            'temperature': config.get('temperature', 0.3),
+            'model': model,
             'max_tokens': config.get('max_tokens', 4000),
             'timeout': config.get('timeout', 60),
+            'max_retries': config.get('max_retries', 3),
         }
+
+        # Adicionar temperature apenas se o modelo suportar
+        if model.lower() not in MODELS_WITHOUT_TEMPERATURE:
+            kwargs['temperature'] = config.get('temperature', 0.3)
+        else:
+            logger.info(f"Modelo {model} não suporta temperature, omitindo parâmetro")
 
         # Base URL customizado (para Azure OpenAI)
         if config.get('base_url'):
@@ -403,7 +413,7 @@ class LLMAnalyzer:
             **kwargs
         )
 
-        logger.info(f"OpenAI inicializado: {kwargs['model']}")
+        logger.info(f"OpenAI inicializado: {kwargs['model']} (max_retries: {kwargs['max_retries']})")
 
     def _init_anthropic_llm(self) -> None:
         """
@@ -425,10 +435,11 @@ class LLMAnalyzer:
             temperature=config.get('temperature', 0.3),
             max_tokens=config.get('max_tokens', 4000),
             timeout=config.get('timeout', 60),
+            max_retries=config.get('max_retries', 3),
             callbacks=[self.token_callback]
         )
 
-        logger.info(f"Anthropic Claude inicializado: {config.get('model')}")
+        logger.info(f"Anthropic Claude inicializado: {config.get('model')} (max_retries: {config.get('max_retries', 3)})")
 
     def _setup_prompts(self) -> None:
         """Configura templates de prompts para análise"""
@@ -1217,6 +1228,31 @@ class ProcedureAnalyzer:
 
         return dict(sorted(hierarchy.items()))
 
+    def _serialize_token_usage(self, obj: Any) -> Any:
+        """
+        Converte TokenUsage e estruturas aninhadas para formato serializável
+
+        Args:
+            obj: Objeto a serializar (TokenUsage, dict, list, ou primitivo)
+
+        Returns:
+            Objeto serializável (dict, list, ou primitivo)
+        """
+        from app.core.models import TokenUsage
+
+        if isinstance(obj, TokenUsage):
+            return {
+                'prompt_tokens': obj.prompt_tokens,
+                'completion_tokens': obj.completion_tokens,
+                'total_tokens': obj.total_tokens
+            }
+        elif isinstance(obj, dict):
+            return {k: self._serialize_token_usage(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._serialize_token_usage(item) for item in obj]
+        else:
+            return obj
+
     def export_results(self, output_file: str = "procedure_analysis.json") -> None:
         """
         Exporta resultados para JSON
@@ -1271,7 +1307,8 @@ class ProcedureAnalyzer:
             if token_stats or token_metrics_list:
                 results['token_metrics'] = {}
                 if token_stats:
-                    results['token_metrics']['statistics'] = token_stats
+                    # Serializar TokenUsage para dict
+                    results['token_metrics']['statistics'] = self._serialize_token_usage(token_stats)
                 if token_metrics_list:
                     results['token_metrics']['detailed'] = token_metrics_list
 

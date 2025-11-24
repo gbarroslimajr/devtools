@@ -10,6 +10,7 @@ CodeGraphAI é uma ferramenta Python que utiliza LLMs (Large Language Models) pa
 
 ## ✨ Funcionalidades
 
+### Funcionalidades Core
 - 🤖 **Análise com IA Local** - Usa modelos LLM (GPT-OSS-120B, Llama, etc.) para entender lógica de negócio
 - 📊 **Mapeamento de Dependências** - Identifica chamadas entre procedures e acessos a tabelas
 - 🗄️ **Análise de Tabelas** - Analisa estrutura de tabelas (DDL, relacionamentos, índices, foreign keys)
@@ -19,6 +20,15 @@ CodeGraphAI é uma ferramenta Python que utiliza LLMs (Large Language Models) pa
 - 💾 **Análise de Arquivos** - Trabalha com arquivos `.prc` locais (sem necessidade de conexão ao banco)
 - 🔄 **Agnóstico de Banco** - Suporta Oracle, PostgreSQL, SQL Server e MySQL através de adaptadores
 - 🎛️ **Análise Flexível** - Escolha entre analisar tabelas, procedures ou ambos com flag `--analysis-type`
+
+### 🆕 Intelligence Tools (Novo!)
+- 🧠 **Knowledge Graph Persistente** - Cache estruturado em grafo (NetworkX) para queries rápidas
+- 🔍 **Static Code Analyzer** - Análise de código sem LLM usando regex avançado
+- 🕷️ **Code Crawler** - Rastreamento recursivo de dependências e fields
+- 🤖 **LangChain Agent** - Agent inteligente com ferramentas especializadas
+- 💬 **Query Natural** - Faça perguntas em linguagem natural sobre o código
+- 🔗 **Field Tracing** - Rastreamento completo de origem e destino de campos
+- 📊 **Impact Analysis** - Análise de impacto de mudanças em procedures
 
 ## 🚀 Quick Start
 
@@ -158,15 +168,37 @@ CodeGraphAI/
 │   │   └── file_loader.py
 │   ├── llm/               # Integração com LLMs
 │   │   └── langchain_wrapper.py
-│   └── config/            # Configuração
-│       └── config.py
+│   ├── config/            # Configuração
+│   │   └── config.py
+│   ├── graph/             # 🆕 Knowledge Graph
+│   │   ├── __init__.py
+│   │   └── knowledge_graph.py
+│   ├── analysis/          # 🆕 Static Analysis & Crawling
+│   │   ├── __init__.py
+│   │   ├── static_analyzer.py
+│   │   ├── code_crawler.py
+│   │   └── models.py
+│   ├── tools/             # 🆕 LangChain Tools
+│   │   ├── __init__.py
+│   │   ├── graph_tools.py
+│   │   ├── field_tools.py
+│   │   └── crawler_tools.py
+│   └── agents/            # 🆕 LangChain Agent
+│       ├── __init__.py
+│       └── code_analysis_agent.py
 ├── analyzer.py            # LLMAnalyzer e ProcedureAnalyzer
 ├── table_analyzer.py      # TableAnalyzer
-├── main.py                # CLI (comando analyze unificado)
+├── main.py                # CLI (comando analyze unificado + query)
 ├── config.py              # Wrapper de compatibilidade
 ├── requirements.txt       # Dependências
 ├── requirements-dev.txt   # Dependências de desenvolvimento
 ├── README.md              # Este arquivo
+├── README_AGENT.md        # 🆕 Documentação do Agent
+├── IMPLEMENTATION_SUMMARY.md # 🆕 Sumário da implementação
+├── cache/                 # 🆕 Knowledge Graph cache
+│   └── knowledge_graph.json
+├── examples/              # 🆕 Exemplos de uso
+│   └── agent_example.py
 ├── procedures/            # Diretório com arquivos .prc
 │   ├── core/
 │   │   ├── calc_saldo.prc
@@ -185,6 +217,11 @@ CodeGraphAI/
     ├── io/               # Testes dos adaptadores
     │   ├── test_table_loaders.py
     │   └── test_*.py
+    ├── analysis/         # 🆕 Testes de análise
+    │   ├── test_static_analyzer.py
+    │   └── test_crawler.py
+    ├── tools/            # 🆕 Testes de tools
+    │   └── test_graph_tools.py
     └── test_table_analyzer.py
 ```
 
@@ -1070,6 +1107,204 @@ python main.py analyze-files --directory ./procedures \
 python main.py analyze-files --directory ./procedures --dry-run
 ```
 
+### Comando `query` 🆕
+
+Faz queries inteligentes usando Agent com tools especializadas. Permite perguntar em linguagem natural sobre procedures, tabelas e campos.
+
+#### Sintaxe
+
+```bash
+python main.py query [PERGUNTA] [OPÇÕES]
+```
+
+#### Argumentos
+
+- `PERGUNTA`: Pergunta em linguagem natural sobre o código (obrigatório)
+- `--verbose/--no-verbose`: Mostrar execução detalhada do agent (padrão: `False`)
+- `--max-iterations N`: Número máximo de iterações do agent (padrão: `15`)
+- `--cache-path PATH`: Caminho do cache do knowledge graph (padrão: `./cache/knowledge_graph.json`)
+- `--log-file PATH`: Arquivo de log específico
+- `--no-auto-log`: Desabilita criação automática de logs
+
+#### Pré-requisito
+
+O comando `query` requer que o knowledge graph tenha sido populado previamente através do comando `analyze`:
+
+```bash
+# Primeiro, execute análise para popular o knowledge graph
+python main.py analyze --analysis-type=procedures \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco --schema public
+
+# Depois, faça queries
+python main.py query "O que faz a procedure PROCESSAR_PEDIDO?"
+```
+
+#### Exemplos de Perguntas
+
+**Consultas Básicas:**
+```bash
+# O que faz uma procedure?
+python main.py query "O que faz a procedure PROCESSAR_PEDIDO?"
+
+# Quem chama uma procedure?
+python main.py query "Quem chama a procedure VALIDAR_USUARIO?"
+
+# Estrutura de uma tabela
+python main.py query "Mostre a estrutura da tabela PEDIDOS"
+```
+
+**Análise de Campos:**
+```bash
+# Análise de campo específico
+python main.py query "Analise o campo status da procedure VALIDAR_USUARIO"
+
+# Rastreamento de campo
+python main.py query "De onde vem o campo email usado em CRIAR_USUARIO?"
+
+# Onde um campo é usado
+python main.py query "Onde o campo total_valor é escrito?"
+```
+
+**Análise de Impacto:**
+```bash
+# Impacto de mudanças
+python main.py query "Se eu modificar CALCULAR_SALDO, quais procedures serão impactadas?"
+
+# Dependências completas
+python main.py query "Mostre todas as dependências de PROCESSAR_PEDIDO"
+```
+
+**Queries Complexas:**
+```bash
+# Análise completa de campo
+python main.py query "O que faz o campo status da procedure VALIDAR_USUARIO? De onde ele vem e para onde vai?"
+
+# Documentação automática
+python main.py query "Documente a procedure PROCESSAR_PEDIDO: o que faz, parâmetros, dependências"
+
+# Análise de complexidade
+python main.py query "Analise a complexidade da procedure VALIDAR_USUARIO e suas dependências"
+```
+
+**Modo Verbose:**
+```bash
+# Ver detalhes da execução (tools utilizadas)
+python main.py query "Quem chama VALIDAR_USUARIO?" --verbose
+
+# Aumentar iterações para queries complexas
+python main.py query "Analise todas as dependências de PROCESSAR_PEDIDO" --max-iterations 25
+```
+
+**Cache Customizado:**
+```bash
+# Usar cache em localização diferente
+python main.py query "O que faz PROCESSAR_PEDIDO?" \
+    --cache-path ./custom_cache/knowledge_graph.json
+```
+
+#### Como Funciona
+
+1. **Carrega Knowledge Graph**: Lê o cache `cache/knowledge_graph.json` criado pela análise
+2. **Inicializa Agent**: Cria LangChain Agent com 5 tools especializadas
+3. **Processa Pergunta**: Agent analisa a pergunta e escolhe tools apropriadas
+4. **Executa Tools**: Usa tools para consultar knowledge graph
+5. **Gera Resposta**: Agent sintetiza resposta com informações obtidas
+
+#### Tools Disponíveis
+
+O agent tem acesso a 5 tools especializadas:
+
+1. **query_procedure**: Consulta informações de procedures
+   - Lógica de negócio, parâmetros, dependências
+   - Quem chama a procedure (callers)
+
+2. **query_table**: Consulta estrutura de tabelas
+   - Colunas, tipos, constraints
+   - Relacionamentos (foreign keys)
+
+3. **analyze_field**: Analisa campo específico
+   - Onde é usado (read/write)
+   - Transformações aplicadas
+   - Relacionamentos
+
+4. **trace_field_flow**: Rastreia fluxo de campo
+   - Origem dos dados
+   - Destino final
+   - Caminho completo através de procedures
+
+5. **crawl_procedure**: Crawling de dependências
+   - Árvore completa de dependências
+   - Análise de impacto
+   - Procedures e tabelas envolvidas
+
+#### Saída de Exemplo
+
+```
+============================================================
+CODE ANALYSIS AGENT - Query Mode
+============================================================
+Carregando configuração...
+Inicializando LLM...
+Carregando knowledge graph de ./cache/knowledge_graph.json...
+✓ Carregado: 45 nós, 120 arestas
+Inicializando tools...
+✓ 5 tools disponíveis
+Criando agent...
+
+============================================================
+PERGUNTA: O que faz a procedure PROCESSAR_PEDIDO?
+============================================================
+
+RESPOSTA:
+------------------------------------------------------------
+A procedure PROCESSAR_PEDIDO tem as seguintes características:
+
+**Lógica de Negócio:**
+Processa pedidos de clientes, validando dados, calculando totais e atualizando status.
+
+**Parâmetros:**
+- p_pedido_id (IN NUMBER): ID do pedido
+- p_status (OUT VARCHAR2): Status após processamento
+
+**Dependências:**
+- Chama: VALIDAR_PEDIDO, CALCULAR_TOTAL
+- Acessa tabelas: PEDIDOS, ITENS_PEDIDO
+
+**Complexidade:** 7/10
+
+**Callers:** GERA_RELATORIO, EXPORTA_DADOS
+------------------------------------------------------------
+
+📊 Tools utilizadas: 2
+  1. query_procedure
+  2. crawl_procedure
+
+============================================================
+Query concluída!
+============================================================
+```
+
+#### Troubleshooting
+
+**Erro: "Cache não encontrado"**
+```bash
+# Execute análise primeiro para criar o knowledge graph
+python main.py analyze --analysis-type=procedures ...
+```
+
+**Erro: "Procedure não encontrada"**
+- Verifique se o nome está correto (case-sensitive)
+- Confirme que a análise foi executada com essa procedure
+- Use `--verbose` para ver detalhes
+
+**Performance lenta:**
+- Verifique tamanho do knowledge graph
+- Considere usar `--limit` na análise inicial
+- Reduza `--max-iterations` se necessário
+
 ### Comando `test-connection`
 
 Testa conectividade com banco de dados.
@@ -1107,6 +1342,108 @@ python main.py test-connection --db-type oracle \
     --dsn localhost:1521/ORCL
 ```
 
+## 🆕 Intelligence Tools - Guia Completo
+
+### Visão Geral
+
+As Intelligence Tools adicionam capacidades avançadas de análise inteligente ao CodeGraphAI:
+
+- **Knowledge Graph**: Cache estruturado em grafo para queries rápidas
+- **Static Analyzer**: Análise de código sem LLM (regex avançado)
+- **Code Crawler**: Rastreamento recursivo de dependências
+- **LangChain Agent**: Agent inteligente com tools especializadas
+- **Query Natural**: Perguntas em linguagem natural sobre o código
+
+### Fluxo de Trabalho
+
+#### 1. Análise Tradicional (popula Knowledge Graph)
+
+Primeiro, execute análise tradicional para popular o knowledge graph:
+
+```bash
+# Análise de procedures
+python main.py analyze --analysis-type=procedures \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco --schema public
+
+# Análise de tabelas
+python main.py analyze --analysis-type=tables \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco --schema public
+
+# Análise completa (procedures + tabelas)
+python main.py analyze --analysis-type=both \
+    --db-type postgresql \
+    --user postgres --password senha \
+    --host localhost --port 5432 \
+    --database meu_banco --schema public
+```
+
+Isso cria `cache/knowledge_graph.json` com o grafo persistente.
+
+#### 2. Queries Inteligentes
+
+Depois, faça queries usando o Agent:
+
+```bash
+python main.py query "O que faz a procedure PROCESSAR_PEDIDO?"
+```
+
+### Uso Programático
+
+```python
+from app.graph.knowledge_graph import CodeKnowledgeGraph
+from app.analysis.code_crawler import CodeCrawler
+from app.tools import init_tools, get_all_tools
+from app.agents.code_analysis_agent import CodeAnalysisAgent
+from analyzer import LLMAnalyzer
+from app.config.config import get_config
+
+# Setup
+config = get_config()
+llm_analyzer = LLMAnalyzer(config=config)
+chat_model = llm_analyzer.get_chat_model()
+
+# Load knowledge graph
+knowledge_graph = CodeKnowledgeGraph(cache_path="./cache/knowledge_graph.json")
+crawler = CodeCrawler(knowledge_graph)
+
+# Initialize tools
+init_tools(knowledge_graph, crawler)
+tools = get_all_tools()
+
+# Create agent
+agent = CodeAnalysisAgent(
+    llm=chat_model,
+    tools=tools,
+    verbose=True,
+    max_iterations=15
+)
+
+# Query
+result = agent.analyze("O que faz a procedure PROCESSAR_PEDIDO?")
+if result["success"]:
+    print(result["answer"])
+    print(f"Tools usadas: {result['tool_call_count']}")
+```
+
+### Exemplos Práticos
+
+Veja `examples/agent_example.py` para exemplos completos:
+
+```bash
+python examples/agent_example.py
+```
+
+### Documentação Adicional
+
+- **README_AGENT.md**: Guia completo do Agent e Tools
+- **IMPLEMENTATION_SUMMARY.md**: Detalhes técnicos da implementação
+
 ### Sistema de Logs Automático
 
 Por padrão, CodeGraphAI cria automaticamente arquivos de log em `logs/` com o formato:
@@ -1139,4 +1476,23 @@ Contribuições são bem-vindas! Por favor:
 4. Push para a branch (`git push origin feature/AmazingFeature`)
 5. Abra um Pull Request
 
-## 🗺
+## 📚 Documentação Adicional
+
+- **README_AGENT.md**: Guia completo das Intelligence Tools (Agent, Knowledge Graph, Tools)
+- **IMPLEMENTATION_SUMMARY.md**: Detalhes técnicos da implementação
+
+## 🗺️ Roadmap
+
+- [x] ✅ Knowledge Graph persistente
+- [x] ✅ Static Code Analyzer
+- [x] ✅ Code Crawler com field tracing
+- [x] ✅ LangChain Agent com tools
+- [x] ✅ CLI para queries naturais
+- [x] ✅ Exemplos e documentação
+- [x] ✅ Testes unitários
+- [ ] SQL Query Tools (executar SELECT no banco)
+- [ ] Suporte a mais bancos de dados (DB2, Sybase)
+- [ ] Interface Web interativa
+- [ ] Análise de triggers
+- [ ] Detecção de código morto
+- [ ] Sugestões de refatoração

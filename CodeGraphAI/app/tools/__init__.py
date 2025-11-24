@@ -22,6 +22,22 @@ def init_tools(knowledge_graph: Any, crawler: Optional[Any] = None) -> None:
     _knowledge_graph = knowledge_graph
     _crawler = crawler
 
+    # Update globals in all tool modules
+    import app.tools.graph_tools as gt
+    import app.tools.field_tools as ft
+    import app.tools.crawler_tools as ct
+
+    gt._knowledge_graph = knowledge_graph
+    # graph_tools doesn't use crawler, but set it for consistency
+    if hasattr(gt, '_crawler'):
+        gt._crawler = crawler
+
+    ft._knowledge_graph = knowledge_graph
+    ft._crawler = crawler
+
+    ct._knowledge_graph = knowledge_graph
+    ct._crawler = crawler
+
 
 def get_all_tools() -> List:
     """

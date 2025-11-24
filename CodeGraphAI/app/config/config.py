@@ -39,6 +39,12 @@ class DefaultConfig:
     OPENAI_TIMEOUT = 60
     OPENAI_TEMPERATURE = 0.3
     OPENAI_MAX_TOKENS = 4000
+    OPENAI_MAX_RETRIES = 3
+
+    # OpenAI - Modelos especializados
+    FALLBACK_MODEL = 'gpt-4.1'
+    MODEL_SUMMARY = 'gpt-4.1-mini'
+    MODEL_SCHEMA_ANALYSIS = 'gpt-5.1'
 
     # Anthropic
     ANTHROPIC_MODEL = 'claude-sonnet-4-5-20250929'
@@ -140,10 +146,16 @@ class Config:
                 DefaultConfig.OPENAI_MODEL,
                 DefaultConfig.OPENAI_TIMEOUT,
                 DefaultConfig.OPENAI_TEMPERATURE,
-                DefaultConfig.OPENAI_MAX_TOKENS
+                DefaultConfig.OPENAI_MAX_TOKENS,
+                DefaultConfig.OPENAI_MAX_RETRIES
             )
             # Base URL é específico do OpenAI (para Azure)
             self.openai['base_url'] = os.getenv('CODEGRAPHAI_OPENAI_BASE_URL')
+
+            # Modelos especializados e fallback
+            self.fallback_model = os.getenv('CODEGRAPHAI_FALLBACK_MODEL', DefaultConfig.FALLBACK_MODEL)
+            self.model_summary = os.getenv('CODEGRAPHAI_MODEL_SUMMARY', DefaultConfig.MODEL_SUMMARY)
+            self.model_schema_analysis = os.getenv('CODEGRAPHAI_MODEL_SCHEMA_ANALYSIS', DefaultConfig.MODEL_SCHEMA_ANALYSIS)
 
             # Anthropic Claude
             self.anthropic = self._load_simple_api_config(
@@ -153,7 +165,8 @@ class Config:
                 DefaultConfig.ANTHROPIC_MODEL,
                 DefaultConfig.ANTHROPIC_TIMEOUT,
                 DefaultConfig.ANTHROPIC_TEMPERATURE,
-                DefaultConfig.ANTHROPIC_MAX_TOKENS
+                DefaultConfig.ANTHROPIC_MAX_TOKENS,
+                DefaultConfig.OPENAI_MAX_RETRIES  # Usa mesmo default do OpenAI
             )
 
             # Configurações globais API
@@ -170,6 +183,9 @@ class Config:
             self.anthropic = None
             self.llm_api_max_output_tokens = None
             self.llm_reasoning_effort = None
+            self.fallback_model = None
+            self.model_summary = None
+            self.model_schema_analysis = None
 
         # Configuração de banco de dados (genérica)
         db_type_str = os.getenv('CODEGRAPHAI_DB_TYPE', DefaultConfig.DB_TYPE).lower()
@@ -281,7 +297,8 @@ class Config:
 
     def _load_simple_api_config(self, provider: str, api_key_var: str, model_var: str,
                                 default_model: str, default_timeout: int = 60,
-                                default_temp: float = 0.3, default_max_tokens: int = 4000) -> dict:
+                                default_temp: float = 0.3, default_max_tokens: int = 4000,
+                                default_max_retries: int = 3) -> dict:
         """
         Carrega configuração para providers simples (OpenAI, Anthropic)
 
@@ -293,6 +310,7 @@ class Config:
             default_timeout: Timeout padrão
             default_temp: Temperature padrão
             default_max_tokens: Max tokens padrão
+            default_max_retries: Max retries padrão
 
         Returns:
             Dict com configuração do provider
@@ -302,7 +320,8 @@ class Config:
             'model': os.getenv(model_var, default_model),
             'timeout': self._getenv_int(f'CODEGRAPHAI_{provider}_TIMEOUT', default_timeout),
             'temperature': self._getenv_float(f'CODEGRAPHAI_{provider}_TEMPERATURE', default_temp),
-            'max_tokens': self._getenv_int(f'CODEGRAPHAI_{provider}_MAX_TOKENS', default_max_tokens)
+            'max_tokens': self._getenv_int(f'CODEGRAPHAI_{provider}_MAX_TOKENS', default_max_tokens),
+            'max_retries': self._getenv_int(f'CODEGRAPHAI_{provider}_MAX_RETRIES', default_max_retries)
         }
 
     def _get_db_value(self, oracle_var: str, generic_var: str, fallback: Optional[str] = None) -> Optional[str]:

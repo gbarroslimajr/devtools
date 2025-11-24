@@ -4,7 +4,7 @@ Graph Tools for querying Knowledge Graph
 
 import json
 import logging
-from typing import Optional
+from typing import Optional, Set
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 
@@ -181,6 +181,25 @@ def query_table(
 
         if include_columns:
             columns = table_info.get("columns", [])
+
+            # WORKAROUND: Remove duplicatas causadas por bug no PostgreSQL loader
+            # TODO: Fix root cause in PostgreSQLTableLoader._load_columns()
+            # Issue: LEFT JOIN on FK constraints returns multiple rows per column
+            # Tracking: FASE 2 do plano de correção
+            seen_columns: Set[str] = set()
+            unique_columns = []
+
+            for col in columns:
+                col_name = col.get("name")
+                if col_name not in seen_columns:
+                    seen_columns.add(col_name)
+                    unique_columns.append(col)
+                else:
+                    logger.debug(
+                        f"Skipping duplicate column '{col_name}' in table "
+                        f"'{table_name}' (loader bug)"
+                    )
+
             result["data"]["columns"] = [
                 {
                     "name": col.get("name"),
@@ -190,9 +209,9 @@ def query_table(
                     "is_foreign_key": col.get("is_foreign_key", False),
                     "default_value": col.get("default_value")
                 }
-                for col in columns
+                for col in unique_columns
             ]
-            result["data"]["column_count"] = len(columns)
+            result["data"]["column_count"] = len(unique_columns)
 
         if include_relationships:
             result["data"]["relationships"] = table_info.get("relationships", {})

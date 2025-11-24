@@ -332,7 +332,11 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
             click.echo(f"Carregando modelo local {model_name}...")
             llm = LLMAnalyzer(model_name=model_name, device=device_name, config=config)
 
-        analyzer = ProcedureAnalyzer(llm)
+        # Cria Knowledge Graph para persistência
+        from app.graph.knowledge_graph import CodeKnowledgeGraph
+        knowledge_graph = CodeKnowledgeGraph(cache_path="./cache/knowledge_graph.json")
+
+        analyzer = ProcedureAnalyzer(llm, knowledge_graph=knowledge_graph)
 
         click.echo(f"Analisando procedures de {directory}...")
         analyzer.analyze_from_files(directory, extension)
@@ -538,6 +542,11 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
             click.echo(f"Carregando modelo local {model_name}...")
             llm = LLMAnalyzer(model_name=model_name, device=device_name, config=config)
 
+        # Cria Knowledge Graph para persistência (usado por ambos analyzers)
+        from app.graph.knowledge_graph import CodeKnowledgeGraph
+        knowledge_graph = CodeKnowledgeGraph(cache_path="./cache/knowledge_graph.json")
+        click.echo("Knowledge Graph inicializado para cache de análise")
+
         # Variáveis para armazenar resultados
         procedure_analyzer = None
         table_analyzer = None
@@ -548,7 +557,7 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
                 click.echo("\n" + "=" * 60)
                 click.echo("ANÁLISE DE PROCEDURES")
                 click.echo("=" * 60)
-                procedure_analyzer = ProcedureAnalyzer(llm)
+                procedure_analyzer = ProcedureAnalyzer(llm, knowledge_graph=knowledge_graph)
                 click.echo(f"Conectando ao banco {db_type.upper()} ({connection_host})...")
                 procedure_analyzer.analyze_from_database(
                     user, password, connection_host, schema, limit,
@@ -587,7 +596,7 @@ def analyze(ctx, analysis_type, db_type, user, password, dsn, host, port, databa
                 click.echo("\n" + "=" * 60)
                 click.echo("ANÁLISE DE TABELAS")
                 click.echo("=" * 60)
-                table_analyzer = TableAnalyzer(llm)
+                table_analyzer = TableAnalyzer(llm, knowledge_graph=knowledge_graph)
                 click.echo(f"Conectando ao banco {db_type.upper()} ({connection_host})...")
 
                 # Usa valores do config se não fornecidos via CLI
