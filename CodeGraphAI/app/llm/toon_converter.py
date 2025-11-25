@@ -17,6 +17,28 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _escape_template_braces(text: str) -> str:
+    """
+    Escapa chaves em strings para uso em templates LangChain PromptTemplate.
+
+    No LangChain, chaves literais `{` e `}` devem ser escapadas como `{{` e `}}`
+    para evitar que sejam interpretadas como variáveis do template.
+
+    Args:
+        text: String contendo chaves que devem ser escapadas
+
+    Returns:
+        String com chaves escapadas ({{ e }})
+
+    Examples:
+        >>> _escape_template_braces('{"key": "value"}')
+        '{{"key": "value"}}'
+    """
+    if not text:
+        return text
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 def json_to_toon(data: Dict[str, Any]) -> str:
     """
     Converte dict/JSON para formato TOON
@@ -85,13 +107,22 @@ def format_toon_example(data: Dict[str, Any]) -> str:
 
 def format_dependencies_prompt_example(use_toon: bool = False) -> str:
     """
-    Formata exemplo de resposta para prompt de dependências
+    Formata exemplo de resposta para prompt de dependências.
+
+    Retorna string formatada com exemplo JSON ou TOON, com chaves escapadas
+    para uso em templates LangChain PromptTemplate. As chaves `{` e `}` no
+    JSON/TOON são escapadas como `{{` e `}}` para evitar interpretação como
+    variáveis do template.
 
     Args:
         use_toon: Se True, usa formato TOON; caso contrário, usa JSON
 
     Returns:
-        String com exemplo formatado
+        String com exemplo formatado e chaves escapadas para LangChain
+
+    Note:
+        As chaves no JSON/TOON são escapadas para compatibilidade com
+        PromptTemplate do LangChain, que interpreta `{var}` como variável.
     """
     example_data = {
         "procedures": ["proc1", "schema.proc2", "proc3"],
@@ -101,16 +132,22 @@ def format_dependencies_prompt_example(use_toon: bool = False) -> str:
     if use_toon and TOON_AVAILABLE:
         try:
             toon_str = json_to_toon(example_data)
-            return f"Retorne no formato TOON:\n{toon_str}\n\nOu no formato JSON:\n{json.dumps(example_data, indent=2, ensure_ascii=False)}"
+            json_str = json.dumps(example_data, indent=2, ensure_ascii=False)
+            # Escapar chaves no JSON e TOON para evitar interpretação como variáveis
+            escaped_toon = _escape_template_braces(toon_str)
+            escaped_json = _escape_template_braces(json_str)
+            return f"Retorne no formato TOON:\n{escaped_toon}\n\nOu no formato JSON:\n{escaped_json}"
         except Exception as e:
             logger.debug(f"Erro ao formatar exemplo TOON: {e}, usando JSON")
             # Fallback para JSON
             json_str = json.dumps(example_data, indent=2, ensure_ascii=False)
-            return f"Retorne no formato JSON:\n{json_str}"
+            escaped_json = _escape_template_braces(json_str)
+            return f"Retorne no formato JSON:\n{escaped_json}"
     else:
         # JSON padrão
         json_str = json.dumps(example_data, indent=2, ensure_ascii=False)
-        return f"Retorne no formato JSON:\n{json_str}"
+        escaped_json = _escape_template_braces(json_str)
+        return f"Retorne no formato JSON:\n{escaped_json}"
 
 
 def parse_llm_response(response: str, use_toon: bool = False) -> Optional[Dict[str, Any]]:
