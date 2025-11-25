@@ -8,7 +8,7 @@ from typing import Any, List, Optional, Dict
 from langchain_core.language_models.llms import BaseLLM
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.outputs import LLMResult, Generation
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from app.llm.genfactory_client import GenFactoryClient
 from app.core.models import TokenUsage, LLMAnalysisError
@@ -32,8 +32,10 @@ class GenFactoryLLM(BaseLLM):
         protected_namespaces=()
     )
 
-    client: GenFactoryClient
-    _last_llm_output: Dict[str, Any] = {}
+    # Declarar campos como opcionais e excluídos da validação
+    # Serão definidos via object.__setattr__ após super().__init__()
+    client: Optional[GenFactoryClient] = Field(default=None, exclude=True)
+    _last_llm_output: Dict[str, Any] = Field(default_factory=dict, exclude=True)
 
     def __init__(self, genfactory_client: GenFactoryClient, **kwargs: Any) -> None:
         """
