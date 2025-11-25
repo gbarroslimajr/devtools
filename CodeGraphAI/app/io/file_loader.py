@@ -34,6 +34,79 @@ class FileLoader(ProcedureLoaderBase):
         """
         return DatabaseType.ORACLE  # Valor padrão, não usado para arquivos
 
+    def test_connection_only(self, config: DatabaseConfig) -> bool:
+        """
+        Valida acessibilidade do diretório e arquivos (equivalente a test_connection).
+
+        Para FileLoader, este método valida que o diretório existe, é acessível
+        e contém arquivos com a extensão esperada, sem carregar o conteúdo.
+        O parâmetro `config` é ignorado, mantido apenas para compatibilidade
+        com a interface ProcedureLoaderBase.
+
+        Args:
+            config: DatabaseConfig (ignorado, mantido para compatibilidade)
+
+        Returns:
+            True se diretório é válido e acessível
+
+        Raises:
+            ValidationError: Se extensão for inválida
+            ProcedureLoadError: Se diretório não existir ou não for acessível
+        """
+        # Validação de extensão
+        if not self.extension or not self.extension.strip():
+            raise ValidationError("Extensão de arquivo não pode ser vazia")
+
+        logger.debug(f"Validando diretório: {self.directory_path} (extensão: .{self.extension})")
+
+        # Converter para Path e validar diretório
+        proc_dir = Path(self.directory_path)
+
+        # Verificar se diretório existe
+        if not proc_dir.exists():
+            error_msg = f"Diretório não encontrado: {self.directory_path}"
+            logger.error(error_msg)
+            raise ProcedureLoadError(error_msg)
+
+        # Verificar se é um diretório
+        if not proc_dir.is_dir():
+            error_msg = f"Caminho não é um diretório: {self.directory_path}"
+            logger.error(error_msg)
+            raise ProcedureLoadError(error_msg)
+
+        # Verificar permissões de acesso (tentar listar conteúdo)
+        try:
+            # Tentar acessar o diretório para verificar permissões
+            list(proc_dir.iterdir())
+            logger.debug(f"Diretório acessível: {self.directory_path}")
+        except PermissionError as e:
+            error_msg = f"Sem permissão para acessar diretório: {self.directory_path}"
+            logger.error(f"{error_msg}: {e}")
+            raise ProcedureLoadError(error_msg) from e
+        except OSError as e:
+            error_msg = f"Erro ao acessar diretório: {self.directory_path}"
+            logger.error(f"{error_msg}: {e}")
+            raise ProcedureLoadError(error_msg) from e
+
+        # Opcionalmente: contar arquivos com a extensão (sem carregar conteúdo)
+        try:
+            file_count = sum(1 for _ in proc_dir.rglob(f"*.{self.extension}"))
+            if file_count == 0:
+                logger.warning(
+                    f"Nenhum arquivo .{self.extension} encontrado em {self.directory_path}"
+                )
+            else:
+                logger.info(
+                    f"Diretório válido: {file_count} arquivo(s) .{self.extension} encontrado(s)"
+                )
+        except Exception as e:
+            # Se houver erro ao contar arquivos, logar mas não falhar
+            # (pode ser problema de permissão em subdiretórios)
+            logger.warning(f"Erro ao contar arquivos (não crítico): {e}")
+
+        logger.debug(f"Validação concluída: diretório {self.directory_path} é válido e acessível")
+        return True
+
     def load_procedures(self, config: DatabaseConfig = None) -> Dict[str, str]:
         """
         Carrega procedures de arquivos
