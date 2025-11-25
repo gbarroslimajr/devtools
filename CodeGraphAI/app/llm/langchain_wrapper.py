@@ -8,6 +8,7 @@ from typing import Any, List, Optional, Dict
 from langchain_core.language_models.llms import BaseLLM
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.outputs import LLMResult, Generation
+from pydantic import ConfigDict
 
 from app.llm.genfactory_client import GenFactoryClient
 from app.core.models import TokenUsage, LLMAnalysisError
@@ -16,19 +17,44 @@ logger = logging.getLogger(__name__)
 
 
 class GenFactoryLLM(BaseLLM):
-    """Wrapper LangChain para GenFactoryClient"""
+    """
+    Wrapper LangChain para GenFactoryClient.
+
+    Permite usar GenFactoryClient com LLMChain e outros componentes do LangChain.
+    Implementa BaseLLM com suporte a batch processing e tracking de token usage.
+    """
+
+    # Configuração Pydantic v2: permite campos extras e tipos arbitrários
+    # Necessário porque 'client' não é um campo Pydantic padrão
+    model_config = ConfigDict(
+        extra='allow',
+        arbitrary_types_allowed=True,
+        protected_namespaces=()
+    )
+
+    client: GenFactoryClient
+    _last_llm_output: Dict[str, Any] = {}
 
     def __init__(self, genfactory_client: GenFactoryClient, **kwargs: Any) -> None:
         """
         Inicializa wrapper LangChain.
 
         Args:
-            genfactory_client: Instância de GenFactoryClient
-            **kwargs: Argumentos adicionais para BaseLLM
+            genfactory_client: Instância de GenFactoryClient configurada
+            **kwargs: Argumentos adicionais para BaseLLM (callbacks, etc.)
+
+        Raises:
+            LLMAnalysisError: Se genfactory_client for None ou inválido
         """
+        if genfactory_client is None:
+            raise LLMAnalysisError("GenFactoryClient não pode ser None")
+
         super().__init__(**kwargs)
-        self.client = genfactory_client
-        self._last_llm_output: Dict[str, Any] = {}
+
+        # Usar object.__setattr__ para contornar validação do Pydantic v2
+        # Isso é necessário porque 'client' não é um campo declarado no modelo
+        object.__setattr__(self, 'client', genfactory_client)
+        object.__setattr__(self, '_last_llm_output', {})
 
     @property
     def _llm_type(self) -> str:
@@ -61,7 +87,7 @@ class GenFactoryLLM(BaseLLM):
         Raises:
             LLMAnalysisError: Se houver erro ao processar algum prompt
         """
-        if not self.client:
+        if not hasattr(self, 'client') or not self.client:
             raise LLMAnalysisError("GenFactoryClient não está inicializado")
 
         logger.debug(f"Processando {len(prompts)} prompt(s) via GenFactory API")
@@ -117,7 +143,7 @@ class GenFactoryLLM(BaseLLM):
                 llm_output = {}
 
             # Atualizar _last_llm_output para compatibilidade com _call
-            self._last_llm_output = llm_output
+            object.__setattr__(self, '_last_llm_output', llm_output)
 
             logger.info(f"Geração concluída: {len(generations)} prompt(s) processado(s)")
 
@@ -160,15 +186,15 @@ class GenFactoryLLM(BaseLLM):
         usage = self.client.get_last_usage()
         if usage:
             # Armazenar em atributo temporário para acesso via _llm_output
-            self._last_llm_output = {
+            object.__setattr__(self, '_last_llm_output', {
                 'token_usage': {
                     'prompt_tokens': usage.prompt_tokens,
                     'completion_tokens': usage.completion_tokens,
                     'total_tokens': usage.total_tokens
                 }
-            }
+            })
         else:
-            self._last_llm_output = {}
+            object.__setattr__(self, '_last_llm_output', {})
 
         return response
 
