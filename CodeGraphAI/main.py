@@ -227,9 +227,11 @@ def cli(ctx, verbose, log_file, no_auto_log):
 @click.option('--export-png', is_flag=True, default=True, help='Exportar grafo PNG (padrão: True)')
 @click.option('--export-mermaid', is_flag=True, default=False, help='Exportar diagramas Mermaid')
 @click.option('--dry-run', is_flag=True, default=False, help='Modo dry-run: valida sem executar')
+@click.option('--fast-index', is_flag=True, default=False,
+              help='Modo rápido: indexa procedures sem LLM (usa embeddings locais)')
 @click.pass_context
 def analyze_files(ctx, directory, extension, output_dir, model, device,
-                  export_json, export_png, export_mermaid, dry_run):
+                  export_json, export_png, export_mermaid, dry_run, fast_index):
     """Analisa procedures a partir de arquivos .prc"""
     config = ctx.obj['config']
     logger = logging.getLogger(__name__)
@@ -262,14 +264,25 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
                     result.add_info(f"Arquivos encontrados: {len(prc_files)}")
                     result.estimated_operations["files_count"] = len(prc_files)
 
-            # Valida LLM
-            llm_result = validator.validate_llm_config(
-                model_name=model,
-                device=device
-            )
-            result.errors.extend(llm_result.errors)
-            result.warnings.extend(llm_result.warnings)
-            result.info.extend(llm_result.info)
+            # Valida LLM (apenas se não estiver em modo fast-index)
+            if not fast_index:
+                llm_result = validator.validate_llm_config(
+                    model_name=model,
+                    device=device
+                )
+                result.errors.extend(llm_result.errors)
+                result.warnings.extend(llm_result.warnings)
+                result.info.extend(llm_result.info)
+            else:
+                result.add_info("Modo fast-index: LLM não será usado")
+                # Valida dependências de embeddings
+                try:
+                    import sentence_transformers
+                    import chromadb
+                    result.add_info("Dependências de embeddings: OK")
+                except ImportError as e:
+                    result.add_error(f"Dependências de embeddings não instaladas: {e}")
+                    result.add_info("Instale com: pip install sentence-transformers chromadb")
 
             # Valida output_dir
             params_result = validator.validate_analysis_params(
@@ -319,6 +332,62 @@ def analyze_files(ctx, directory, extension, output_dir, model, device,
                 click.echo("   Corrija os erros antes de executar a análise.")
                 sys.exit(1)
 
+        # MODO FAST-INDEX: Indexação rápida sem LLM
+        if fast_index:
+            click.echo("🚀 Modo FAST-INDEX: Indexação rápida sem LLM...")
+
+            try:
+                from app.analysis.fast_indexer import FastIndexer
+                from app.graph.knowledge_graph import CodeKnowledgeGraph
+
+                # Cria Knowledge Graph para persistência
+                knowledge_graph = CodeKnowledgeGraph(cache_path="./cache/knowledge_graph.json")
+
+                # Inicializa FastIndexer
+                vector_store_path = Path(config.vector_store_path) if hasattr(config, 'vector_store_path') else None
+                fast_indexer = FastIndexer(
+                    knowledge_graph=knowledge_graph,
+                    embedding_backend=config.embedding_backend if hasattr(config, 'embedding_backend') else 'sentence-transformers',
+                    embedding_model=config.embedding_model if hasattr(config, 'embedding_model') else None,
+                    vector_store_path=vector_store_path,
+                    batch_size=32
+                )
+
+                # Executa indexação rápida
+                click.echo(f"Indexando procedures de {directory}...")
+                result = fast_indexer.index_from_files(directory, extension, show_progress=True)
+
+                # Estatísticas
+                click.echo("\n" + "=" * 60)
+                click.echo("ESTATÍSTICAS - FAST INDEX")
+                click.echo("=" * 60)
+                click.echo(f"✓ Procedures indexadas: {result['indexed_count']}")
+                click.echo(f"✓ Tempo total: {result['total_time']:.2f}s")
+                click.echo(f"✓ Vector store: {result['vector_store_path']}")
+                stats = result['statistics']
+                click.echo(f"✓ Procedures extraídas: {stats['procedures_extracted']}")
+                click.echo(f"✓ Tabelas extraídas: {stats['tables_extracted']}")
+                click.echo(f"✓ Complexidade média: {stats['avg_complexity']}/10")
+                click.echo(f"✓ Procedures pendentes de enriquecimento LLM: {len(result['pending_llm'])}")
+
+                if result['pending_llm']:
+                    click.echo(f"\n💡 Para enriquecer com LLM, execute:")
+                    click.echo(f"   python main.py analyze-files --directory {directory}")
+                    click.echo(f"   (sem --fast-index para análise completa com LLM)")
+
+                click.echo("\n✅ Indexação rápida concluída!")
+                return
+
+            except ImportError as e:
+                click.echo(f"❌ Erro: Dependências não instaladas: {e}", err=True)
+                click.echo("   Instale com: pip install sentence-transformers chromadb", err=True)
+                sys.exit(1)
+            except Exception as e:
+                logger.exception("Erro no modo fast-index")
+                click.echo(f"❌ Erro no modo fast-index: {e}", err=True)
+                sys.exit(1)
+
+        # MODO PADRÃO: Análise completa com LLM (comportamento atual)
         # Resolve caminhos
         output_path = Path(output_dir) if output_dir else Path(config.output_dir)
         format_subdir = "toon-format" if config.llm_use_toon else "json-format"
