@@ -34,8 +34,9 @@ class GenFactoryLLM(BaseLLM):
 
     # Declarar campos como opcionais e excluídos da validação
     # Serão definidos via object.__setattr__ após super().__init__()
+    # Nota: Pydantic v2 não permite campos com underscore inicial
     client: Optional[GenFactoryClient] = Field(default=None, exclude=True)
-    _last_llm_output: Dict[str, Any] = Field(default_factory=dict, exclude=True)
+    last_llm_output: Dict[str, Any] = Field(default_factory=dict, exclude=True)
 
     def __init__(self, genfactory_client: GenFactoryClient, **kwargs: Any) -> None:
         """
@@ -56,7 +57,7 @@ class GenFactoryLLM(BaseLLM):
         # Usar object.__setattr__ para contornar validação do Pydantic v2
         # Isso é necessário porque 'client' não é um campo declarado no modelo
         object.__setattr__(self, 'client', genfactory_client)
-        object.__setattr__(self, '_last_llm_output', {})
+        object.__setattr__(self, 'last_llm_output', {})
 
     @property
     def _llm_type(self) -> str:
@@ -144,8 +145,8 @@ class GenFactoryLLM(BaseLLM):
                 logger.warning("Nenhum token usage disponível para nenhum prompt")
                 llm_output = {}
 
-            # Atualizar _last_llm_output para compatibilidade com _call
-            object.__setattr__(self, '_last_llm_output', llm_output)
+            # Atualizar last_llm_output para compatibilidade com _call
+            object.__setattr__(self, 'last_llm_output', llm_output)
 
             logger.info(f"Geração concluída: {len(generations)} prompt(s) processado(s)")
 
@@ -188,7 +189,7 @@ class GenFactoryLLM(BaseLLM):
         usage = self.client.get_last_usage()
         if usage:
             # Armazenar em atributo temporário para acesso via _llm_output
-            object.__setattr__(self, '_last_llm_output', {
+            object.__setattr__(self, 'last_llm_output', {
                 'token_usage': {
                     'prompt_tokens': usage.prompt_tokens,
                     'completion_tokens': usage.completion_tokens,
@@ -196,18 +197,18 @@ class GenFactoryLLM(BaseLLM):
                 }
             })
         else:
-            object.__setattr__(self, '_last_llm_output', {})
+            object.__setattr__(self, 'last_llm_output', {})
 
         return response
 
     def _llm_output(self) -> Dict[str, Any]:
         """
-        Retorna output do LLM incluindo metadata como usage
+        Retorna output do LLM incluindo metadata como usage.
 
         Returns:
             Dict com llm_output contendo token_usage
         """
-        return getattr(self, '_last_llm_output', {})
+        return getattr(self, 'last_llm_output', {})
 
     @property
     def _identifying_params(self) -> Dict[str, str]:
