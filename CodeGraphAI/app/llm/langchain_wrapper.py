@@ -3,20 +3,24 @@ Wrapper LangChain para GenFactoryClient
 Permite usar GenFactoryClient com LLMChain do LangChain
 """
 
+import logging
 from typing import Any, List, Optional, Dict
 from langchain_core.language_models.llms import BaseLLM
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.outputs import LLMResult, Generation
 
 from app.llm.genfactory_client import GenFactoryClient
-from app.core.models import TokenUsage
+from app.core.models import TokenUsage, LLMAnalysisError
+
+logger = logging.getLogger(__name__)
 
 
 class GenFactoryLLM(BaseLLM):
     """Wrapper LangChain para GenFactoryClient"""
 
-    def __init__(self, genfactory_client: GenFactoryClient, **kwargs: Any):
+    def __init__(self, genfactory_client: GenFactoryClient, **kwargs: Any) -> None:
         """
-        Inicializa wrapper LangChain
+        Inicializa wrapper LangChain.
 
         Args:
             genfactory_client: Instância de GenFactoryClient
@@ -24,11 +28,107 @@ class GenFactoryLLM(BaseLLM):
         """
         super().__init__(**kwargs)
         self.client = genfactory_client
+        self._last_llm_output: Dict[str, Any] = {}
 
     @property
     def _llm_type(self) -> str:
         """Tipo do LLM"""
         return "genfactory"
+
+    def _generate(
+        self,
+        prompts: List[str],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> LLMResult:
+        """
+        Gera respostas para uma lista de prompts (método abstrato obrigatório).
+
+        Este método é chamado pelo LangChain para processar múltiplos prompts,
+        suportando batch processing. Processa cada prompt sequencialmente
+        e agrega os resultados em um LLMResult.
+
+        Args:
+            prompts: Lista de prompts para processar
+            stop: Lista de strings para parar geração (não suportado ainda)
+            run_manager: Callback manager para tracking de execução
+            **kwargs: Parâmetros adicionais passados para a API (max_tokens, temperature, etc.)
+
+        Returns:
+            LLMResult contendo generations e llm_output com token usage
+
+        Raises:
+            LLMAnalysisError: Se houver erro ao processar algum prompt
+        """
+        if not self.client:
+            raise LLMAnalysisError("GenFactoryClient não está inicializado")
+
+        logger.debug(f"Processando {len(prompts)} prompt(s) via GenFactory API")
+
+        generations: List[List[Generation]] = []
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_tokens = 0
+        llm_output: Dict[str, Any] = {}
+
+        try:
+            for i, prompt in enumerate(prompts):
+                logger.debug(f"Processando prompt {i + 1}/{len(prompts)}")
+
+                # Converter prompt para formato de mensagens
+                messages = [{"role": "user", "content": prompt}]
+
+                # Chamar API GenFactory
+                response_text = self.client.chat(messages, **kwargs)
+
+                # Extrair token usage da última requisição
+                usage = self.client.get_last_usage()
+                if usage:
+                    total_prompt_tokens += usage.prompt_tokens
+                    total_completion_tokens += usage.completion_tokens
+                    total_tokens += usage.total_tokens
+                    logger.debug(
+                        f"Prompt {i + 1}: {usage.prompt_tokens} prompt tokens, "
+                        f"{usage.completion_tokens} completion tokens"
+                    )
+                else:
+                    logger.warning(f"Token usage não disponível para prompt {i + 1}")
+
+                # Criar Generation object
+                generation = Generation(text=response_text)
+                generations.append([generation])
+
+            # Construir llm_output com token usage agregado
+            if total_tokens > 0:
+                llm_output = {
+                    'token_usage': {
+                        'prompt_tokens': total_prompt_tokens,
+                        'completion_tokens': total_completion_tokens,
+                        'total_tokens': total_tokens
+                    }
+                }
+                logger.debug(
+                    f"Total tokens: {total_prompt_tokens} prompt + "
+                    f"{total_completion_tokens} completion = {total_tokens} total"
+                )
+            else:
+                logger.warning("Nenhum token usage disponível para nenhum prompt")
+                llm_output = {}
+
+            # Atualizar _last_llm_output para compatibilidade com _call
+            self._last_llm_output = llm_output
+
+            logger.info(f"Geração concluída: {len(generations)} prompt(s) processado(s)")
+
+            return LLMResult(generations=generations, llm_output=llm_output)
+
+        except LLMAnalysisError:
+            # Re-raise LLMAnalysisError sem modificação
+            raise
+        except Exception as e:
+            logger.error(f"Erro inesperado ao gerar respostas: {e}")
+            raise LLMAnalysisError(f"Erro ao processar prompts: {e}") from e
 
     def _call(
             self,
@@ -82,8 +182,13 @@ class GenFactoryLLM(BaseLLM):
         return getattr(self, '_last_llm_output', {})
 
     @property
-    def _identifying_params(self) -> dict:
-        """Parâmetros identificadores do modelo"""
+    def _identifying_params(self) -> Dict[str, str]:
+        """
+        Parâmetros identificadores do modelo.
+
+        Returns:
+            Dicionário com parâmetros que identificam este modelo LLM
+        """
         return {
             "base_url": self.client.base_url,
             "model": self.client.model
