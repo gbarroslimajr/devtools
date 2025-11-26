@@ -16,6 +16,7 @@ except ImportError:
     DOTENV_AVAILABLE = False
 
 from app.core.models import DatabaseType, LLMProvider
+from app.llm.embedding_utils import resolve_embedding_model_path
 
 
 class DefaultConfig:
@@ -76,7 +77,16 @@ class DefaultConfig:
 
     # Vector Store / Embeddings
     EMBEDDING_BACKEND = 'sentence-transformers'  # Backend de embedding
-    EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2'  # Modelo de embedding
+    # Detectar modelo local automaticamente
+    _PROJECT_ROOT = Path(__file__).parent.parent
+    _LOCAL_MODEL_PATH = _PROJECT_ROOT / "models" / "elastic" / "multilingual-e5-small-optimized"
+    # Resolver modelo padrão
+    _default_model, _is_local, _is_quantized = resolve_embedding_model_path(
+        embedding_model=None,
+        project_root=_PROJECT_ROOT
+    )
+    EMBEDDING_MODEL = _default_model  # Modelo de embedding (local ou HuggingFace)
+    LOCAL_EMBEDDING_MODEL_PATH = str(_LOCAL_MODEL_PATH) if _LOCAL_MODEL_PATH.exists() else None
     VECTOR_STORE_PATH = './cache/vector_store'  # Caminho do vector store
 
 

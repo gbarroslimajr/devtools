@@ -29,6 +29,8 @@ from tqdm import tqdm
 from app.analysis.static_analyzer import StaticCodeAnalyzer
 from app.io.file_loader import FileLoader
 from app.graph.knowledge_graph import CodeKnowledgeGraph
+from app.llm.embedding_utils import resolve_embedding_model_path
+from app.llm.quantized_model_loader import QuantizedModelLoader
 from analyzer import AnalysisConfig
 
 logger = logging.getLogger(__name__)
@@ -103,12 +105,89 @@ class FastIndexer:
                     "Instale com: pip install sentence-transformers>=2.2.0"
                 )
 
-            if embedding_model is None:
-                embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+            # Resolver caminho do modelo
+            project_root = Path(__file__).parent.parent.parent
+            model_path, is_local, is_quantized = resolve_embedding_model_path(
+                embedding_model=embedding_model,
+                project_root=project_root
+            )
 
-            logger.info(f"Carregando modelo de embedding: {embedding_model} (device: {self.device})")
-            self.embedder = SentenceTransformer(embedding_model, device=self.device)
-            logger.info("Modelo de embedding carregado com sucesso")
+            # Carregar modelo quantizado ou normal
+            if is_local and is_quantized:
+                # Usar carregador especializado para modelos quantizados
+                logger.info(f"Carregando modelo quantizado local: {model_path} (device: {self.device})")
+                try:
+                    self.embedder = QuantizedModelLoader(
+                        model_path=model_path,
+                        device=self.device,
+                        trust_remote_code=False
+                    )
+                    logger.info("Modelo quantizado carregado com sucesso")
+                except (ValueError, NotImplementedError, OSError) as e:
+                    # Erro específico de quantização - fazer fallback para modelo base
+                    error_msg = str(e)
+                    if any(keyword in error_msg for keyword in [
+                        "requer suporte específico",
+                        "aten::_empty_affine_quantized",
+                        "QuantizedMeta",
+                        "Unable to load weights"
+                    ]):
+                        logger.error(
+                            f"Modelo quantizado não pode ser carregado: {e}. "
+                            "Fazendo fallback para modelo base do HuggingFace..."
+                        )
+                        # Fallback para modelo base
+                        model_path = "intfloat/multilingual-e5-small"
+                        is_local = False
+                        is_quantized = False
+                    else:
+                        # Outro erro - tentar como modelo normal
+                        logger.warning(
+                            f"Erro ao carregar modelo quantizado: {e}. "
+                            "Tentando carregar como modelo normal..."
+                        )
+                        is_quantized = False
+                except Exception as e:
+                    logger.warning(
+                        f"Erro inesperado ao carregar modelo quantizado: {e}. "
+                        "Fazendo fallback para modelo base do HuggingFace..."
+                    )
+                    # Fallback para modelo base em caso de erro inesperado também
+                    model_path = "intfloat/multilingual-e5-small"
+                    is_local = False
+                    is_quantized = False
+
+            if not (is_local and is_quantized):
+                # Carregamento normal (não quantizado ou HuggingFace)
+                cache_folder = None
+                if is_local:
+                    cache_folder = str(Path(model_path).parent)
+                    logger.info(f"Carregando modelo local: {model_path} (device: {self.device})")
+                else:
+                    logger.info(f"Carregando modelo HuggingFace: {model_path} (device: {self.device})")
+                    logger.warning(
+                        "Modelo será baixado do HuggingFace. "
+                        "Para uso offline, clone o modelo em ./models/elastic/multilingual-e5-small-optimized"
+                    )
+
+                try:
+                    self.embedder = SentenceTransformer(
+                        model_path,
+                        device=self.device,
+                        cache_folder=cache_folder if cache_folder else None
+                    )
+                    logger.info(f"Modelo de embedding carregado com sucesso (local: {is_local})")
+                except Exception as e:
+                    if is_local:
+                        raise ValueError(
+                            f"Erro ao carregar modelo local em {model_path}: {e}. "
+                            "Verifique se o modelo está completo e válido."
+                        ) from e
+                    else:
+                        raise ConnectionError(
+                            f"Erro ao baixar modelo do HuggingFace: {e}. "
+                            "Verifique conexão ou use modelo local."
+                        ) from e
         else:
             raise ValueError(f"Backend não suportado: {embedding_backend}")
 

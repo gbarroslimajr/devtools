@@ -42,6 +42,7 @@ Thumbs.db
 # Crie uma cópia .env ou environment.env com suas credenciais reais (não serão commitadas)
 .env
 environment.env
+environment-bnp.env
 *.env.local
 
 # Logs
@@ -72,6 +73,12 @@ htmlcov/
 
 # Modelos LLM (podem ser grandes)
 models/
+!models/elastic/
+!models/elastic/multilingual-e5-small-optimized/
+!models/elastic/multilingual-e5-small-optimized/**
+# Ignorar arquivos temporários do git clone
+models/**/.git/
+models/**/.gitattributes
 *.bin
 *.safetensors
 
