@@ -1,21 +1,21 @@
 #!/usr/bin/ksh
 ###############################################################################
-# decrypt_SOLAAR.sh  (substitui decrypt.sh)
+# decrypt_SOLAAR.sh  (replaces decrypt.sh)
 #
-# - End-of-transfer do CFT para arquivos SOLAAR (*.GPG)
-# - Carrega o gpg_env.sh (paths, PASS, diretórios, owner, etc.)
-# - Enfileira arquivos pendentes
-# - Processa 1 por vez (fila FIFO + lock)
-# - Cria LOG por execução
+# - End-of-transfer from CFT for SOLAAR files (*.GPG)
+# - Loads gpg_env.sh (paths, PASS, directories, owner, etc.)
+# - Enqueues pending files
+# - Processes one at a time (FIFO queue + lock)
+# - Creates LOG per execution
 ###############################################################################
 
-# Diretório do script
+# Script directory
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 ###############################################################################
-# 1. Carrega o ambiente (gpg_env.sh)
-#    - Define: HOMEDIR, HOMEDIRGPG, LOGFILE, PASS, USER, USERGROUP etc.
-#    - NÃO USAMOS INPUTFILE/OUTPUTFILE DO ARQUIVO (só paths/credenciais)
+# 1. Load environment (gpg_env.sh)
+#    - Defines: HOMEDIR, HOMEDIRGPG, LOGFILE, PASS, USER, USERGROUP etc.
+#    - WE DO NOT USE INPUTFILE/OUTPUTFILE FROM FILE (only paths/credentials)
 ###############################################################################
 
 ENV_FILE="$SCRIPT_DIR/gpg_env.sh"
@@ -23,22 +23,22 @@ ENV_FILE="$SCRIPT_DIR/gpg_env.sh"
 if [ -f "$ENV_FILE" ]; then
   . "$ENV_FILE"
 else
-  echo "ERRO: Arquivo de ambiente '$ENV_FILE' não encontrado!"
+  echo "ERROR: Environment file '$ENV_FILE' not found!" >&2
   exit 1
 fi
 
-# Valida variáveis obrigatórias após carregar ambiente
+# Validate required variables after loading environment
 REQUIRED_VARS="HOMEDIR HOMEDIRGPG PASS"
 for var in $REQUIRED_VARS; do
   eval "value=\$$var"
   if [ -z "$value" ]; then
-    echo "ERRO: Variável obrigatória '$var' não definida em $ENV_FILE" >&2
+    echo "ERROR: Required variable '$var' not defined in $ENV_FILE" >&2
     exit 1
   fi
 done
 
 ###############################################################################
-# 2. Diretórios de trabalho (baseados no gpg_env.sh)
+# 2. Working directories (based on gpg_env.sh)
 ###############################################################################
 CFT_DIR="$HOMEDIR/cft"
 RECV_DIR="$CFT_DIR/recv"
@@ -47,30 +47,30 @@ GNUPG_DIR="$HOMEDIRGPG"
 QUEUE_FILE="$CFT_DIR/solaar_queue.lst"
 LOCK_FILE="$CFT_DIR/solaar_queue.lock"
 
-# Log próprio por execução
+# Own log per execution
 NOW=$(date +%Y%m%d_%H%M%S)
 EXEC_LOG="$CFT_DIR/solaar_${NOW}.log"
 
-OWNER_USER=${USER:-"cpf"}
-OWNER_GROUP=${USERGROUP:-"TXQUA"}
+OWNER_USER=${USER:-"appuser"}
+OWNER_GROUP=${USERGROUP:-"APPGRP_QA"}
 
-# Valida existência de diretórios críticos
+# Validate existence of critical directories
 [ -d "$GNUPG_DIR" ] || {
-  echo "ERRO: Diretório GPG não existe: $GNUPG_DIR" >&2
+  echo "ERROR: GPG directory does not exist: $GNUPG_DIR" >&2
   exit 1
 }
 
-# Cria diretórios que podem não existir (com permissões corretas)
+# Create directories that may not exist (with correct permissions)
 [ -d "$CFT_DIR" ] || {
   mkdir -p "$CFT_DIR" || {
-    echo "ERRO: Não foi possível criar diretório CFT: $CFT_DIR" >&2
+    echo "ERROR: Could not create CFT directory: $CFT_DIR" >&2
     exit 1
   }
 }
 
 [ -d "$RECV_DIR" ] || {
   mkdir -p "$RECV_DIR" || {
-    echo "ERRO: Não foi possível criar diretório de recebimento: $RECV_DIR" >&2
+    echo "ERROR: Could not create receive directory: $RECV_DIR" >&2
     exit 1
   }
 }
@@ -82,7 +82,7 @@ log() {
 }
 
 ###############################################################################
-# 3. Enfileirar arquivos pendentes
+# 3. Enqueue pending files
 ###############################################################################
 enqueue_pending_files() {
 
@@ -94,32 +94,32 @@ enqueue_pending_files() {
     fname=$(basename "$f")
     out_txt="$RECV_DIR/${fname%.[Gg][Pp][Gg]}.txt"
 
-    # Se já existe TXT correspondente, não enfileira
+    # If corresponding TXT already exists, do not enqueue
     if [ -f "$out_txt" ]; then
-      log "Arquivo já processado, TXT encontrado. Ignorando: $fname"
+      log "File already processed, TXT found. Ignoring: $fname"
       continue
     fi
 
-    # Enfileira se ainda não está na fila
+    # Enqueue if not already in queue
     if ! grep -qx "$fname" "$QUEUE_FILE" 2>/dev/null; then
       echo "$fname" >> "$QUEUE_FILE"
-      log "Arquivo enfileirado: $fname"
+      log "File enqueued: $fname"
     fi
   done
 }
 
 ###############################################################################
-# 4. Processar fila com lock
+# 4. Process queue with lock
 ###############################################################################
 process_queue() {
 
   if [ -f "$LOCK_FILE" ]; then
-    log "Lock encontrado. Outra instância está rodando. Encerrando."
+    log "Lock found. Another instance is running. Exiting."
     return 0
   fi
 
   echo $$ > "$LOCK_FILE"
-  log "LOCK criado: $LOCK_FILE (PID $$)"
+  log "LOCK created: $LOCK_FILE (PID $$)"
 
   while [ -s "$QUEUE_FILE" ]; do
     FILE_IN_QUEUE=$(head -n 1 "$QUEUE_FILE")
@@ -131,11 +131,11 @@ process_queue() {
   done
 
   rm -f "$LOCK_FILE"
-  log "LOCK removido."
+  log "LOCK removed."
 }
 
 ###############################################################################
-# 5. Decriptar arquivo único
+# 5. Decrypt single file
 ###############################################################################
 decrypt_single_file() {
 
@@ -143,10 +143,10 @@ decrypt_single_file() {
   input_file="$RECV_DIR/$fname"
   output_file="$RECV_DIR/${fname%.[Gg][Pp][Gg]}.txt"
 
-  log "Iniciando decrypt: $fname"
+  log "Starting decrypt: $fname"
 
   if [ ! -f "$input_file" ]; then
-    log "ERRO: Arquivo não encontrado: $input_file"
+    log "ERROR: File not found: $input_file"
     return 1
   fi
 
@@ -160,14 +160,14 @@ decrypt_single_file() {
       "$input_file" >> "$EXEC_LOG" 2>&1
 
   if [ $? -ne 0 ]; then
-    log "ERRO ao decriptar: $fname"
+    log "ERROR decrypting: $fname"
     return 1
   fi
 
   chmod 664 "$output_file" 2>/dev/null
   chown "$OWNER_USER":"$OWNER_GROUP" "$output_file" 2>/dev/null
 
-  log "Decrypt concluído: $output_file"
+  log "Decrypt completed: $output_file"
   return 0
 }
 
@@ -175,12 +175,12 @@ decrypt_single_file() {
 # MAIN
 ###############################################################################
 log "========================================================================"
-log "Início decrypt_SOLAAR.sh — carregado via gpg_env.sh"
+log "Start decrypt_SOLAAR.sh — loaded via gpg_env.sh"
 
 enqueue_pending_files
 process_queue
 
-log "Fim decrypt_SOLAAR.sh"
+log "End decrypt_SOLAAR.sh"
 log "========================================================================"
 
 exit 0

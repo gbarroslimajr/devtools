@@ -73,3 +73,5 @@ models/
 *.bin
 *.safetensors
 
+# Documentation with sensitive information
+Solaar/README.md

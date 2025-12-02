@@ -1,57 +1,57 @@
 #!/usr/bin/ksh
 ###############################################################################
-# gpg_env.sh — Variáveis de ambiente para decrypt CFT/SOLAAR
+# gpg_env.sh — Environment variables for decrypt CFT/SOLAAR
 #
-# Este arquivo é carregado pelo decrypt_SOLAAR.sh.
-# Contém APENAS:
-#   - paths base
-#   - home GPG
-#   - credenciais GPG (PASS)
-#   - usuários e grupos
-# Não contém INPUTFILE/OUTPUTFILE fixos (não são usados no novo fluxo).
+# This file is loaded by decrypt_SOLAAR.sh.
+# Contains ONLY:
+#   - base paths
+#   - GPG home
+#   - GPG credentials (PASS)
+#   - users and groups
+# Does not contain fixed INPUTFILE/OUTPUTFILE (not used in new flow).
 ###############################################################################
 
 ############################
-# Diretório base do projeto
+# Project base directory
 ############################
-# Exemplo (anônimo):
-# /home/dstx/projects/CPF
-HOMEDIR="/home/<anonimo>/projects/CPF"
+# Example:
+# /home/user/projects/PROJECT_NAME
+HOMEDIR="/home/user/projects/PROJECT_NAME"
 
 
 ############################
-# Diretorio do GnuPG
+# GnuPG directory
 ############################
-# Exemplo real:
-# /home/dstx/projects/CPF/cft/gnupg
+# Example:
+# /home/user/projects/PROJECT_NAME/cft/gnupg
 HOMEDIRGPG="$HOMEDIR/cft/gnupg"
 
 
 ############################
-# Senha da chave privada GPG
+# GPG private key password
 ############################
-# (Valor aqui deve ser substituído pela senha real do PRD/UAT —
-#  mas sem expor em documentação)
-PASS="<SENHA_GPG_ANONIMIZADA>"
+# (Value here must be replaced with real PRD/UAT password —
+#  but without exposing in documentation)
+PASS="<GPG_PASSWORD_PLACEHOLDER>"
 
 
 ############################
-# Usuário e grupo para chown
+# User and group for chown
 ############################
-USER="cpf"
-USERGROUP="TXQUA"   # ou TXPRD em produção, se aplicável
+USER="appuser"
+USERGROUP="APPGRP_QA"   # or APPGRP_PROD in production, if applicable
 
 
 ############################
-# Log padrão legado (opcional)
+# Legacy default log (optional)
 ############################
-# Mantido apenas para compatibilidade com FORMEL
+# Kept only for FORMEL compatibility
 LOGFILE="$HOMEDIR/archives/log/gpg.log"
 
 
 ###############################################################################
-# OBS:
-# As variáveis INPUTFILE e OUTPUTFILE NÃO são usadas no fluxo SOLAAR.
-# O decrypt_SOLAAR.sh processa múltiplos arquivos dinamicamente.
+# NOTE:
+# INPUTFILE and OUTPUTFILE variables are NOT used in SOLAAR flow.
+# decrypt_SOLAAR.sh processes multiple files dynamically.
 ###############################################################################
 
