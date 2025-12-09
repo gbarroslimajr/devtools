@@ -2,7 +2,7 @@
 ###############################################################################
 # decrypt_SOLAAR_v2_test.sh
 #
-# VERSION: 2.0-TEST - Dry-run version for concurrency testing
+# VERSION: 2.1-TEST - Dry-run version for concurrency testing
 #
 # DIFFERENCES FROM PRODUCTION:
 #   - DRY_RUN mode: simulates GPG decrypt with sleep + cp
@@ -10,11 +10,17 @@
 #   - SLEEP_TIME configurable for testing (default: 1 second)
 #   - Detailed timestamps in logs
 #   - Uses /bin/bash for better compatibility with test environment
+#   - Fixed output file name (CAR_OFSAPAC_REV.txt - parametrizable)
+#   - Wait for output file to be processed before processing next GPG
 #
 # USAGE:
 #   ./decrypt_SOLAAR_v2_test.sh [--sleep N]
 #   Options:
 #     --sleep N : Set sleep time in seconds (default: 1)
+#
+# CONFIGURATION:
+#   - OUTPUT_FILE_NAME: Name of output file (default: CAR_OFSAPAC_REV.txt)
+#     Can be overridden by setting environment variable before execution
 #
 ###############################################################################
 
@@ -69,10 +75,18 @@ if ! command -v flock >/dev/null 2>&1; then
 fi
 
 ###############################################################################
-# 3. Working directories (based on gpg_env_test.sh)
+# 3. Output file configuration (parametrizable)
+###############################################################################
+OUTPUT_FILE_NAME="${OUTPUT_FILE_NAME:-CAR_OFSAPAC_REV.txt}"
+POLL_INTERVAL=5
+MAX_WAIT_TIME=600
+
+###############################################################################
+# 4. Working directories (based on gpg_env_test.sh)
 ###############################################################################
 CFT_DIR="$HOMEDIR/cft"
 RECV_DIR="$CFT_DIR/recv"
+OUTPUT_FILE="$RECV_DIR/$OUTPUT_FILE_NAME"
 
 QUEUE_FILE="$CFT_DIR/solaar_queue.lst"
 LOCK_FILE="$CFT_DIR/solaar_process.lock"
@@ -89,7 +103,7 @@ OWNER_GROUP=${USERGROUP:-$(id -gn)}
 PROCESS_LOCK_HELD=0
 
 ###############################################################################
-# 4. Cleanup and trap handlers
+# 5. Cleanup and trap handlers
 ###############################################################################
 cleanup() {
   local exit_code=${1:-0}
@@ -109,7 +123,7 @@ trap 'log "Received INT/TERM/HUP signal"; cleanup 1' INT TERM HUP
 trap 'cleanup 0' EXIT
 
 ###############################################################################
-# 5. Directory validation and setup
+# 6. Directory validation and setup
 ###############################################################################
 
 # Create directories that may not exist (with correct permissions)
@@ -137,7 +151,29 @@ log() {
 }
 
 ###############################################################################
-# 6. Enqueue pending files (with queue lock protection)
+# 7. Wait for output file to be processed
+###############################################################################
+wait_for_output_file() {
+  local elapsed=0
+  local start_time=$(date +%s)
+
+  while [ -f "$OUTPUT_FILE" ]; do
+    if [ $elapsed -ge $MAX_WAIT_TIME ]; then
+      log "ERROR: Timeout waiting for $OUTPUT_FILE to disappear (${MAX_WAIT_TIME}s)"
+      return 1
+    fi
+
+    log "Waiting for $OUTPUT_FILE to be processed (elapsed: ${elapsed}s)..."
+    sleep $POLL_INTERVAL
+    elapsed=$(($(date +%s) - start_time))
+  done
+
+  log "Output file $OUTPUT_FILE disappeared, ready to process next GPG file"
+  return 0
+}
+
+###############################################################################
+# 8. Enqueue pending files (with queue lock protection)
 ###############################################################################
 enqueue_pending_files() {
   # Use flock with subshell for queue operations
@@ -153,13 +189,6 @@ enqueue_pending_files() {
       [ ! -f "$f" ] && continue
 
       fname=$(basename "$f")
-      out_txt="$RECV_DIR/${fname%.[Gg][Pp][Gg]}.txt"
-
-      # If corresponding TXT already exists, do not enqueue
-      if [ -f "$out_txt" ]; then
-        log "File already processed, TXT found. Ignoring: $fname"
-        continue
-      fi
 
       # Enqueue if not already in queue (protected by lock)
       if ! grep -qx "$fname" "$QUEUE_FILE" 2>/dev/null; then
@@ -171,7 +200,7 @@ enqueue_pending_files() {
 }
 
 ###############################################################################
-# 7. Get next file from queue (atomic operation)
+# 9. Get next file from queue (atomic operation)
 ###############################################################################
 get_next_from_queue() {
   # Use flock with subshell - output is captured by caller
@@ -198,7 +227,7 @@ get_next_from_queue() {
 }
 
 ###############################################################################
-# 8. Process queue with atomic lock (flock)
+# 10. Process queue with atomic lock (flock)
 ###############################################################################
 process_queue() {
   # Open lock file on file descriptor 200
@@ -225,6 +254,12 @@ process_queue() {
       break
     fi
 
+    # Wait for output file to be processed before processing next GPG file
+    if ! wait_for_output_file; then
+      log "WARN: Timeout waiting for output file. Skipping file: $FILE_IN_QUEUE"
+      continue
+    fi
+
     decrypt_single_file "$FILE_IN_QUEUE"
     ((processed_count++))
   done
@@ -236,14 +271,13 @@ process_queue() {
 }
 
 ###############################################################################
-# 9. Decrypt single file (DRY-RUN: simulates with sleep + cp)
+# 11. Decrypt single file (DRY-RUN: simulates with sleep + cp)
 ###############################################################################
 decrypt_single_file() {
   fname="$1"
   input_file="$RECV_DIR/$fname"
-  output_file="$RECV_DIR/${fname%.[Gg][Pp][Gg]}.txt"
 
-  log "Starting decrypt (DRY-RUN): $fname"
+  log "Starting decrypt (DRY-RUN): $fname -> $OUTPUT_FILE"
   local start_time=$(date +%s.%3N)
 
   if [ ! -f "$input_file" ]; then
@@ -251,13 +285,8 @@ decrypt_single_file() {
     return 1
   fi
 
-  # Double-check: if output already exists, skip (safety net)
-  if [ -f "$output_file" ]; then
-    log "WARN: Output file already exists, skipping: $output_file"
-    return 0
-  fi
-
-  rm -f "$output_file" 2>/dev/null
+  # Remove output file if it exists (should not happen after wait_for_output_file, but safety check)
+  rm -f "$OUTPUT_FILE" 2>/dev/null
 
   ###########################################################################
   # DRY-RUN MODE: Simulate GPG decrypt with sleep + cp
@@ -273,7 +302,7 @@ decrypt_single_file() {
     echo "# Sleep time: ${SLEEP_TIME}s"
     echo "---"
     cat "$input_file"
-  } > "$output_file"
+  } > "$OUTPUT_FILE"
 
   local end_time=$(date +%s.%3N)
   local duration=$(echo "$end_time - $start_time" | bc)
@@ -283,9 +312,9 @@ decrypt_single_file() {
     return 1
   fi
 
-  chmod 664 "$output_file" 2>/dev/null
+  chmod 664 "$OUTPUT_FILE" 2>/dev/null
 
-  log "Decrypt completed (DRY-RUN): $output_file (${duration}s)"
+  log "Decrypt completed (DRY-RUN): $fname -> $OUTPUT_FILE (${duration}s)"
   return 0
 }
 
@@ -294,6 +323,8 @@ decrypt_single_file() {
 ###############################################################################
 log "========================================================================"
 log "Start decrypt_SOLAAR_v2_test.sh (DRY-RUN) - PID $$"
+log "Output file: $OUTPUT_FILE"
+log "Poll interval: ${POLL_INTERVAL}s, Max wait: ${MAX_WAIT_TIME}s"
 log "SLEEP_TIME: ${SLEEP_TIME}s"
 log "HOMEDIR: $HOMEDIR"
 log "RECV_DIR: $RECV_DIR"
